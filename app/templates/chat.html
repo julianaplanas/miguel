@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Chat · {{ settings.app_name }}{% endblock %}
+{% block head %}
+<script src="/static/vendor/chart.umd.js"></script>
+{% endblock %}
+
+{% block content %}
+<h1>Chat sobre tus gastos</h1>
+<p class="subtitle">
+  Pregunta en lenguaje natural. El modelo ve el resumen de
+  {% if active_files | length == 1 %}1 archivo activo{% else %}{{ active_files | length }} archivos activos{% endif %}
+  y puede devolver graficos. <a href="/archivos">Cambiar archivos activos</a>
+</p>
+
+{% if not chat_enabled %}
+<div class="flash err">
+  El chat esta desactivado: falta la variable de entorno <code>OPENROUTER_API_KEY</code>.
+  Anadela en Railway (Variables) y vuelve a desplegar.
+</div>
+{% endif %}
+
+{% if not active_files %}
+<div class="flash err">No hay archivos activos: el chat no tendra datos que analizar.</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head">
+    <h2>Conversacion</h2>
+    <div style="display:flex; gap:8px; align-items:center">
+      <span class="hint" id="modelo-actual">{{ model }}</span>
+      <button type="button" id="limpiar-chat" class="btn-sm">Borrar historial</button>
+    </div>
+  </div>
+
+  <div class="suggestions" id="sugerencias">
+    {% for s in suggestions %}<button type="button" data-texto="{{ s }}">{{ s }}</button>{% endfor %}
+  </div>
+
+  <div class="chat-log" id="chat-log">
+    {% if not messages %}
+    <div class="msg assistant" data-vacio="1">
+      <div class="avatar">IA</div>
+      <div class="bubble"><p>Hola. Preguntame lo que quieras sobre tus gastos: totales, comparaciones por persona o categoria, tendencias, o pideme un grafico.</p></div>
+    </div>
+    {% endif %}
+    {% for m in messages %}
+    <div class="msg {{ m.role }}">
+      <div class="avatar">{{ 'Tu' if m.role == 'user' else 'IA' }}</div>
+      <div class="bubble" data-markdown="{{ m.content }}"></div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <form class="chat-form" id="chat-form">
+    <textarea id="mensaje" name="mensaje" placeholder="Ej: cuanto gasto Ana en supermercado este ano?" {{ 'disabled' if not chat_enabled }}></textarea>
+    <button type="submit" class="btn-primary" id="enviar" {{ 'disabled' if not chat_enabled }}>Enviar</button>
+  </form>
+  <div class="typing" id="estado"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>window.APP_CURRENCY = {{ settings.currency | tojson }}; window.APP_LOCALE = {{ settings.locale | tojson }};</script>
+<script src="/static/js/charts.js"></script>
+<script src="/static/js/chat.js"></script>
+{% endblock %}

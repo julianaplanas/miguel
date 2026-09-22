@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Entrar · {{ settings.app_name }}{% endblock %}
+{% block body %}
+<div class="login-wrap">
+  <form class="card login-card" method="post" action="/login">
+    <h1>{{ settings.app_name }}</h1>
+    <p class="subtitle">Entra para ver tus gastos.</p>
+    {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+    <input type="hidden" name="next" value="{{ next }}">
+    <div class="field">
+      <label for="username">Usuario</label>
+      <input id="username" name="username" type="text" autocomplete="username" autofocus required>
+    </div>
+    <div class="field">
+      <label for="password">Contrasena</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+    </div>
+    <button class="btn-primary" type="submit">Entrar</button>
+  </form>
+</div>
+{% endblock %}

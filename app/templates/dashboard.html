@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · {{ settings.app_name }}{% endblock %}
+{% block head %}
+<script src="/static/vendor/chart.umd.js"></script>
+{% endblock %}
+
+{% block content %}
+<h1>Dashboard de gastos</h1>
+<p class="subtitle">
+  {{ active_count }} de {{ total_files }} archivo{{ '' if total_files == 1 else 's' }} activo{{ '' if total_files == 1 else 's' }}.
+  <a href="/archivos">Gestionar archivos</a>
+</p>
+
+{% if total_files == 0 %}
+<div class="card empty">
+  <h2>Todavia no hay datos</h2>
+  <p class="subtitle">Sube un CSV o Excel con tus gastos para empezar.</p>
+  <a class="btn btn-primary" href="/archivos">Subir un archivo</a>
+</div>
+{% else %}
+
+<section class="card" style="margin-bottom:16px">
+  <div class="card-head">
+    <h2>Archivos activos</h2>
+    <span class="hint">Activa o desactiva para cambiar lo que entra en el analisis</span>
+  </div>
+  <div class="file-actions">
+    {% for f in files %}
+    <form method="post" action="/archivos/{{ f.id }}/toggle">
+      <input type="hidden" name="redirect_to" value="/">
+      <button type="submit" class="btn-sm" title="{{ f.row_count }} movimientos">
+        <span class="dot" style="width:7px;height:7px;border-radius:50%;background:{{ 'var(--good)' if f.is_active else 'var(--text-muted)' }}"></span>
+        {{ f.filename }}
+        <span style="color:var(--text-muted)">{{ 'activo' if f.is_active else 'inactivo' }}</span>
+      </button>
+    </form>
+    {% endfor %}
+  </div>
+</section>
+
+<form class="filters" id="filtros">
+  <div class="field">
+    <label for="desde">Desde</label>
+    <input type="date" id="desde" name="desde" value="{{ options.date_min or '' }}">
+  </div>
+  <div class="field">
+    <label for="hasta">Hasta</label>
+    <input type="date" id="hasta" name="hasta" value="{{ options.date_max or '' }}">
+  </div>
+  <div class="field">
+    <label for="persona">Personas</label>
+    <select id="persona" name="persona" multiple size="4">
+      {% for p in options.persons %}<option value="{{ p }}">{{ p }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="categoria">Categorias</label>
+    <select id="categoria" name="categoria" multiple size="4">
+      {% for c in options.categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn-primary">Aplicar</button>
+  <button type="button" id="limpiar">Limpiar</button>
+  <a class="btn" id="exportar" href="/api/exportar.csv">Exportar CSV</a>
+</form>
+
+<div id="estado-vacio" class="card empty" hidden>
+  <h2>Sin resultados</h2>
+  <p class="subtitle">Ningun movimiento coincide con los filtros (o no hay archivos activos).</p>
+</div>
+
+<div id="panel">
+  <section class="grid grid-kpi" style="margin-bottom:16px">
+    <div class="card stat">
+      <span class="label">Gasto total</span>
+      <span class="value" id="kpi-gasto">-</span>
+      <span class="meta" id="kpi-periodo">-</span>
+    </div>
+    <div class="card stat">
+      <span class="label">Media mensual</span>
+      <span class="value" id="kpi-mensual">-</span>
+      <span class="meta" id="kpi-meses">-</span>
+    </div>
+    <div class="card stat">
+      <span class="label">Gasto medio</span>
+      <span class="value" id="kpi-medio">-</span>
+      <span class="meta" id="kpi-movimientos">-</span>
+    </div>
+    <div class="card stat">
+      <span class="label">Balance</span>
+      <span class="value" id="kpi-balance">-</span>
+      <span class="meta" id="kpi-ingresos">-</span>
+    </div>
+  </section>
+
+  <section class="card" style="margin-bottom:16px">
+    <div class="card-head">
+      <h2>Evolucion mensual</h2>
+      <span class="hint">Gasto e ingreso por mes</span>
+    </div>
+    <div class="chart-box"><canvas id="chart-mes"></canvas></div>
+    <div class="legend" id="legend-mes"></div>
+  </section>
+
+  <section class="grid grid-2" style="margin-bottom:16px">
+    <div class="card">
+      <div class="card-head">
+        <h2>Gasto por categoria</h2>
+        <span class="hint">Top categorias</span>
+      </div>
+      <div class="chart-box"><canvas id="chart-categoria"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2>Gasto por persona</h2>
+        <span class="hint">Total del periodo</span>
+      </div>
+      <div class="chart-box"><canvas id="chart-persona"></canvas></div>
+    </div>
+  </section>
+
+  <section class="grid grid-2" style="margin-bottom:16px">
+    <div class="card">
+      <div class="card-head">
+        <h2>Persona por categoria</h2>
+        <span class="hint">Reparto de cada persona</span>
+      </div>
+      <div class="chart-box tall"><canvas id="chart-cruce"></canvas></div>
+      <div class="legend" id="legend-cruce"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2>Gasto por dia de la semana</h2>
+        <span class="hint">Suma del periodo</span>
+      </div>
+      <div class="chart-box tall"><canvas id="chart-semana"></canvas></div>
+    </div>
+  </section>
+
+  <section class="card" style="margin-bottom:16px">
+    <div class="card-head">
+      <h2>Mayores gastos</h2>
+      <span class="hint">Top 15</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Fecha</th><th>Descripcion</th><th>Categoria</th><th>Persona</th><th class="num">Importe</th></tr>
+        </thead>
+        <tbody id="tabla-top"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Movimientos</h2>
+      <span class="hint" id="movimientos-total"></span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Fecha</th><th>Descripcion</th><th>Categoria</th><th>Persona</th><th>Archivo</th><th class="num">Importe</th></tr>
+        </thead>
+        <tbody id="tabla-movimientos"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:12px"><button type="button" id="cargar-mas" hidden>Cargar mas</button></div>
+  </section>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if total_files > 0 %}
+<script>window.APP_CURRENCY = {{ settings.currency | tojson }}; window.APP_LOCALE = {{ settings.locale | tojson }};</script>
+<script src="/static/js/charts.js"></script>
+<script src="/static/js/dashboard.js"></script>
+{% endif %}
+{% endblock %}

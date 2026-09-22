@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Archivos · {{ settings.app_name }}{% endblock %}
+
+{% block content %}
+<h1>Archivos</h1>
+<p class="subtitle">Sube CSV, TSV o Excel. Solo los archivos <strong>activos</strong> cuentan en el dashboard y en el chat.</p>
+
+{% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
+{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+<form class="card" method="post" action="/archivos/upload" enctype="multipart/form-data" style="margin-bottom:20px">
+  <div class="card-head">
+    <h2>Subir archivo</h2>
+    <span class="hint">Se detectan solas las columnas de fecha, importe, categoria y persona</span>
+  </div>
+  <div class="filters" style="margin:0; border:0; padding:0; background:transparent">
+    <div class="field">
+      <label for="file">Archivo</label>
+      <input id="file" type="file" name="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls" required>
+    </div>
+    <div class="field">
+      <label for="default_person">Persona por defecto (opcional)</label>
+      <input id="default_person" type="text" name="default_person" placeholder="Ej: Miguel">
+    </div>
+    <button class="btn-primary" type="submit">Subir e importar</button>
+  </div>
+</form>
+
+{% if not files %}
+<div class="card empty">
+  <h2>Aun no hay archivos</h2>
+  <p class="subtitle">Sube tu primer export de gastos para ver el dashboard.</p>
+</div>
+{% else %}
+<div class="stack">
+  {% for item in files %}
+  {% set f = item.obj %}
+  <div class="card">
+    <div class="file-row">
+      <div>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+          <strong>{{ f.filename }}</strong>
+          {% if f.is_active %}
+            <span class="badge on"><span class="dot"></span>Activo</span>
+          {% else %}
+            <span class="badge off"><span class="dot"></span>Inactivo</span>
+          {% endif %}
+        </div>
+        <div class="file-meta">
+          {{ f.row_count }} movimientos · {{ (f.size_bytes / 1024) | round(1) }} KB ·
+          subido el {{ f.uploaded_at.strftime('%d/%m/%Y %H:%M') }}
+          {% if f.default_person %} · persona por defecto: {{ f.default_person }}{% endif %}
+        </div>
+        {% if f.notes %}<div class="file-meta" style="color:var(--warning)">{{ f.notes }}</div>{% endif %}
+      </div>
+      <div class="file-actions">
+        <form method="post" action="/archivos/{{ f.id }}/toggle">
+          <input type="hidden" name="redirect_to" value="/archivos">
+          <button type="submit" class="btn-sm">{{ 'Desactivar' if f.is_active else 'Activar' }}</button>
+        </form>
+        <a class="btn btn-sm" href="/archivos/{{ f.id }}/descargar">Descargar</a>
+        <form method="post" action="/archivos/{{ f.id }}/delete"
+              onsubmit="return confirm('Eliminar {{ f.filename }} y sus movimientos?');">
+          <button type="submit" class="btn-sm btn-danger">Eliminar</button>
+        </form>
+      </div>
+    </div>
+
+    <details class="mapping">
+      <summary>Mapeo de columnas ({{ item.mapping | length }} campos detectados)</summary>
+      <form method="post" action="/archivos/{{ f.id }}/remap">
+        <div class="mapping-grid">
+          {% for campo in fields %}
+          <div class="field">
+            <label for="{{ campo }}-{{ f.id }}">{{ {
+              'date': 'Fecha', 'amount': 'Importe', 'description': 'Descripcion',
+              'category': 'Categoria', 'person': 'Persona', 'account': 'Cuenta',
+              'currency': 'Moneda', 'kind': 'Tipo (ingreso/gasto)'
+            }[campo] }}</label>
+            <select id="{{ campo }}-{{ f.id }}" name="{{ campo }}">
+              <option value="">— ninguna —</option>
+              {% for col in item.columns %}
+              <option value="{{ col }}" {{ 'selected' if item.mapping.get(campo) == col }}>{{ col }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endfor %}
+          <div class="field">
+            <label for="default_person-{{ f.id }}">Persona por defecto</label>
+            <input id="default_person-{{ f.id }}" type="text" name="default_person" value="{{ f.default_person }}">
+          </div>
+          <div class="field">
+            <label for="invert-{{ f.id }}">Signo</label>
+            <select id="invert-{{ f.id }}" name="invert_sign">
+              <option value="" {{ 'selected' if not item.mapping.get('invert_sign') }}>Positivo = gasto</option>
+              <option value="1" {{ 'selected' if item.mapping.get('invert_sign') }}>Negativo = gasto (invertir)</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:12px; display:flex; gap:8px; align-items:center">
+          <button type="submit" class="btn-primary btn-sm">Guardar y reimportar</button>
+          <span class="hint" style="color:var(--text-muted); font-size:12px">
+            Reimportar reemplaza los movimientos de este archivo.
+          </span>
+        </div>
+      </form>
+    </details>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
