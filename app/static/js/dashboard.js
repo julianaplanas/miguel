@@ -150,11 +150,22 @@
     }
     if (data.converted) {
       conversion.hidden = false;
-      const partes = Object.keys(data.rates || {})
-        .filter(function (c) { return c !== data.currency; })
-        .map(function (c) { return '1 ' + c + ' = ' + data.rates[c] + ' ' + data.currency; });
-      conversion.textContent = 'Todo convertido a ' + data.currency +
-        (partes.length ? ' (' + partes.join(' · ') + ').' : '.');
+      if (data.mode === 'historical') {
+        let texto = 'Convertido a ' + data.currency +
+          ' con el tipo de cambio de la fecha de cada movimiento.';
+        if (data.historical_fallbacks) {
+          texto += ' ' + data.historical_fallbacks + ' movimiento' +
+            (data.historical_fallbacks === 1 ? '' : 's') + ' sin historico (' +
+            (data.fallback_currencies || []).join(', ') + ') usaron el tipo actual.';
+        }
+        conversion.textContent = texto;
+      } else {
+        const partes = Object.keys(data.rates || {})
+          .filter(function (c) { return c !== data.currency; })
+          .map(function (c) { return '1 ' + c + ' = ' + data.rates[c] + ' ' + data.currency; });
+        conversion.textContent = 'Todo convertido a ' + data.currency +
+          ' con el tipo de cambio actual' + (partes.length ? ' (' + partes.join(' · ') + ')' : '') + '.';
+      }
     } else {
       conversion.hidden = true;
     }
@@ -174,7 +185,11 @@
         Viz.money(f.expense, f.code),
         Viz.money(f.income, f.code),
         String(f.transactions),
-        f.code === data.currency ? '—' : (f.rate ? '1 = ' + f.rate + ' ' + data.currency : 'sin cargar')
+        f.code === data.currency
+          ? '—'
+          : (data.mode === 'historical'
+              ? 'segun la fecha'
+              : (f.rate ? '1 = ' + f.rate + ' ' + data.currency : 'sin cargar'))
       ];
       celdas.forEach(function (valor, i) {
         const td = document.createElement('td');

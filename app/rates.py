@@ -21,7 +21,12 @@ import httpx
 
 DOLARAPI = "https://dolarapi.com/v1"
 ERAPI = "https://open.er-api.com/v6/latest"
+# Series historicas: argentinadatos publica la cotizacion diaria del dolar
+# desde hace anos; frankfurter cubre las monedas fuertes.
+ARGENTINADATOS = "https://api.argentinadatos.com/v1/cotizaciones"
+FRANKFURTER = "https://api.frankfurter.app"
 TIMEOUT = 15.0
+HISTORY_TIMEOUT = 60.0
 
 # Casas de dolarapi.com, en el orden en que se ofrecen en la UI.
 DOLAR_HOUSES: list[tuple[str, str]] = [
@@ -55,10 +60,10 @@ class FetchedRate:
     quoted_at: dt.datetime | None = None
 
 
-def _get_json(url: str) -> Any:
+def _get_json(url: str, timeout: float = TIMEOUT) -> Any:
     """Punto unico de salida a la red (los tests lo sustituyen)."""
     try:
-        response = httpx.get(url, timeout=TIMEOUT, follow_redirects=True)
+        response = httpx.get(url, timeout=timeout, follow_redirects=True)
         response.raise_for_status()
         return response.json()
     except httpx.HTTPStatusError as exc:
@@ -195,3 +200,97 @@ def fetch_rate(code: str, base: str, source: str = "") -> FetchedRate:
     if source == "erapi":
         return _fetch_erapi(code, base)
     raise RateError(f"Origen desconocido: {source}")
+
+
+# --------------------------------------------------------------------------
+# Series historicas
+# --------------------------------------------------------------------------
+
+def _parse_date(value: Any) -> dt.date | None:
+    if not value:
+        return None
+    texto = str(value).strip()[:10]
+    try:
+        return dt.date.fromisoformat(texto)
+    except ValueError:
+        return None
+
+
+def history_source(code: str, base: str, source: str = "") -> str:
+    """Que proveedor de historico corresponde a este par."""
+    code, base = code.upper(), base.upper()
+    if base == "ARS" and code == "USD":
+        casa = source.split(":", 1)[1] if source.startswith("dolarapi:") else DEFAULT_HOUSE
+        return f"argentinadatos:{casa}"
+    return "frankfurter"
+
+
+def history_label(source: str) -> str:
+    if source.startswith("argentinadatos:"):
+        casa = source.split(":", 1)[1]
+        return f"argentinadatos · {dict(DOLAR_HOUSES).get(casa, casa)}"
+    if source == "frankfurter":
+        return "frankfurter.app"
+    return source or "—"
+
+
+def _history_argentinadatos(casa: str) -> list[tuple[dt.date, float]]:
+    datos = _get_json(f"{ARGENTINADATOS}/dolares/{casa}", timeout=HISTORY_TIMEOUT)
+    if not isinstance(datos, list):
+        raise RateError("Respuesta inesperada de argentinadatos.")
+    serie: list[tuple[dt.date, float]] = []
+    for item in datos:
+        if not isinstance(item, dict):
+            continue
+        fecha = _parse_date(item.get("fecha"))
+        valor = _number(item.get("venta")) or _number(item.get("compra"))
+        if fecha and valor:
+            serie.append((fecha, valor))
+    if not serie:
+        raise RateError("argentinadatos no devolvio ninguna cotizacion.")
+    return serie
+
+
+def _history_frankfurter(code: str, base: str, desde: dt.date, hasta: dt.date) -> list[tuple[dt.date, float]]:
+    url = f"{FRANKFURTER}/{desde.isoformat()}..{hasta.isoformat()}?from={code}&to={base}"
+    datos = _get_json(url, timeout=HISTORY_TIMEOUT)
+    if not isinstance(datos, dict) or "rates" not in datos:
+        raise RateError(f"frankfurter.app no cotiza {code} contra {base}.")
+    serie: list[tuple[dt.date, float]] = []
+    for clave, valores in (datos.get("rates") or {}).items():
+        fecha = _parse_date(clave)
+        valor = _number((valores or {}).get(base))
+        if fecha and valor:
+            serie.append((fecha, valor))
+    if not serie:
+        raise RateError(f"frankfurter.app no devolvio datos para {code}/{base}.")
+    return serie
+
+
+def fetch_history(
+    code: str,
+    base: str,
+    desde: dt.date,
+    hasta: dt.date,
+    source: str = "",
+) -> tuple[list[tuple[dt.date, float]], str]:
+    """Serie diaria de `code` en `base` para el periodo pedido.
+
+    Devuelve (serie, origen). argentinadatos entrega la serie completa de
+    una sola vez, asi que se recorta al periodo aqui.
+    """
+    code, base = code.upper(), base.upper()
+    if code == base:
+        raise RateError("Es la propia moneda base.")
+    origen = history_source(code, base, source)
+
+    if origen.startswith("argentinadatos:"):
+        serie = _history_argentinadatos(origen.split(":", 1)[1])
+        serie = [(f, v) for f, v in serie if desde <= f <= hasta]
+        if not serie:
+            raise RateError("No hay cotizaciones historicas en ese periodo.")
+    else:
+        serie = _history_frankfurter(code, base, desde, hasta)
+
+    serie.sort(key=lambda par: par[0])
+    return serie, origen

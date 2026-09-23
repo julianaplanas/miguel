@@ -7,8 +7,9 @@ from urllib.parse import unquote
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db import init_db
 from app.main import app
+
+from tests.conftest import reset_db
 
 CSV = (
     "Fecha;Concepto;Categoria;Persona;Importe\n"
@@ -20,7 +21,7 @@ CSV = (
 
 @pytest.fixture(scope="module")
 def client():
-    init_db()
+    reset_db()
     with TestClient(app) as test_client:
         yield test_client
 

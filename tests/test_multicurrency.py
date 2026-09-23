@@ -10,6 +10,9 @@ from sqlalchemy import delete
 from app.db import SessionLocal, init_db
 from app.main import app
 from app.models import ExchangeRate, Transaction, UploadedFile
+from app.preferences import set_base_currency
+
+from tests.conftest import reset_db
 
 CSV = (
     "fecha,concepto,categoria,persona,importe,moneda\n"
@@ -21,12 +24,9 @@ CSV = (
 
 @pytest.fixture(scope="module")
 def auth():
-    init_db()
-    with SessionLocal() as db:  # partimos de una base limpia
-        db.execute(delete(Transaction))
-        db.execute(delete(UploadedFile))
-        db.execute(delete(ExchangeRate))
-        db.commit()
+    reset_db()
+    with SessionLocal() as db:
+        set_base_currency(db, "ARS")
     with TestClient(app) as client:
         client.post(
             "/login",

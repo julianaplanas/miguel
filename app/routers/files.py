@@ -20,7 +20,7 @@ from app.models import Transaction, UploadedFile
 
 router = APIRouter(prefix="/archivos")
 
-ALLOWED_SUFFIXES = {".csv", ".tsv", ".txt", ".xlsx", ".xlsm", ".xls"}
+ALLOWED_SUFFIXES = {".csv", ".tsv", ".txt", ".xlsx", ".xlsm", ".xls", ".pdf"}
 
 
 def _safe_suffix(filename: str) -> str:
@@ -28,7 +28,7 @@ def _safe_suffix(filename: str) -> str:
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Formato no soportado ({suffix or 'sin extension'}). Usa CSV, TSV o Excel.",
+            detail=f"Formato no soportado ({suffix or 'sin extension'}). Usa CSV, TSV, Excel o PDF.",
         )
     return suffix
 

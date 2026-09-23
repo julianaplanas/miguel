@@ -19,6 +19,7 @@ from typing import Any
 import pandas as pd
 
 from app import currency as cur
+from app.pdf_import import extract_rows as extract_pdf_rows
 
 FIELDS = ["date", "amount", "description", "category", "person", "account", "currency", "kind"]
 
@@ -75,6 +76,9 @@ def read_table(path: str | Path, raw: bytes | None = None) -> pd.DataFrame:
     path = Path(path)
     suffix = path.suffix.lower()
     data = raw if raw is not None else path.read_bytes()
+
+    if suffix == ".pdf":
+        return extract_pdf_rows(data)
 
     if suffix in {".xlsx", ".xlsm", ".xls"}:
         return pd.read_excel(io.BytesIO(data), dtype=object)

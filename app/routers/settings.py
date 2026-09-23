@@ -5,16 +5,23 @@ import datetime as dt
 
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app import currency as cur
 from app import rates as rate_api
-from app.analytics import available_options
+from app.analytics import available_options, fetch_rows, Filters
 from app.db import get_db
 from app.deps import require_user, templates
-from app.models import ExchangeRate
-from app.preferences import base_currency, set_base_currency
+from app.models import ExchangeRate, RateHistory
+from app.preferences import (
+    MODE_CURRENT,
+    MODE_HISTORICAL,
+    base_currency,
+    conversion_mode,
+    set_base_currency,
+    set_conversion_mode,
+)
 
 router = APIRouter(prefix="/ajustes")
 
@@ -60,6 +67,20 @@ def settings_page(
 
     ahora = dt.datetime.now(dt.timezone.utc)
 
+    # Cobertura del historico por moneda: cuantos dias y que periodo.
+    cobertura: dict[str, dict] = {}
+    for code, dias, desde, hasta in db.execute(
+        select(
+            RateHistory.code,
+            func.count(RateHistory.date),
+            func.min(RateHistory.date),
+            func.max(RateHistory.date),
+        )
+        .where(RateHistory.base == base)
+        .group_by(RateHistory.code)
+    ).all():
+        cobertura[(code or "").upper()] = {"days": dias, "from": desde, "to": hasta}
+
     def fila(code: str, usada: bool) -> dict:
         guardado = guardados.get(code)
         obsoleto = bool(guardado and guardado.base and guardado.base.upper() != base)
@@ -82,6 +103,10 @@ def settings_page(
             "auto": bool(guardado and guardado.source and guardado.source != rate_api.MANUAL),
             "stale_base": obsoleto,
             "in_use": usada,
+            "history": cobertura.get(code),
+            "history_label": rate_api.history_label(
+                rate_api.history_source(code, base, guardado.source if guardado else "")
+            ),
         }
 
     filas = [fila(c, True) for c in en_uso] + [fila(c, False) for c in otras]
@@ -94,6 +119,10 @@ def settings_page(
             "base_options": cur.known_codes(),
             "rows": filas,
             "missing": opciones["missing_rates"],
+            "mode": conversion_mode(db),
+            "mode_current": MODE_CURRENT,
+            "mode_historical": MODE_HISTORICAL,
+            "period": _period(db),
             "can_refresh_all": any(f["auto"] or f["in_use"] for f in filas),
             "message": message,
             "error": error,
@@ -205,3 +234,84 @@ def refresh_all(db: Session = Depends(get_db), _: str = Depends(require_user)):
     if fallos:
         mensaje += f". Fallaron: {' · '.join(fallos)}"
     return _redirect(message=mensaje)
+
+
+def _period(db: Session) -> tuple[dt.date, dt.date] | None:
+    """Periodo que cubren los movimientos activos (para pedir el historico)."""
+    fechas = [r["date"] for r in fetch_rows(db, Filters()) if r["date"]]
+    if not fechas:
+        return None
+    return min(fechas), max(fechas)
+
+
+@router.post("/modo-conversion")
+def save_mode(
+    db: Session = Depends(get_db),
+    _: str = Depends(require_user),
+    mode: str = Form(...),
+):
+    try:
+        elegido = set_conversion_mode(db, mode)
+    except ValueError:
+        return _redirect(error="Modo de conversion no valido")
+    if elegido == MODE_HISTORICAL:
+        return _redirect(
+            message="Cada movimiento se convierte al tipo de cambio de su fecha. "
+            "Descarga el historico de las monedas que uses."
+        )
+    return _redirect(message="Todo se convierte al tipo de cambio actual.")
+
+
+@router.post("/historico")
+def download_history(
+    db: Session = Depends(get_db),
+    _: str = Depends(require_user),
+    code: str = Form(...),
+):
+    base = base_currency(db)
+    code = cur.normalize_code(code, "").upper()
+    if not code or code == base:
+        return _redirect(error="Moneda no valida")
+
+    periodo = _period(db)
+    if periodo is None:
+        return _redirect(error="No hay movimientos con fecha: no se que periodo pedir.")
+    desde, hasta = periodo
+    # Un poco de margen hacia atras, para que el primer movimiento tenga
+    # una cotizacion anterior a la que agarrarse.
+    desde = desde - dt.timedelta(days=10)
+
+    guardado = db.get(ExchangeRate, code)
+    origen_actual = (guardado.source if guardado else "") or ""
+    try:
+        serie, origen = rate_api.fetch_history(code, base, desde, hasta, origen_actual)
+    except rate_api.RateError as exc:
+        return _redirect(error=f"No se pudo traer el historico de {code}: {exc}")
+
+    db.execute(
+        delete(RateHistory).where(RateHistory.code == code, RateHistory.base == base)
+    )
+    db.add_all(
+        [
+            RateHistory(code=code, base=base, date=fecha, rate=valor, source=origen)
+            for fecha, valor in serie
+        ]
+    )
+    db.commit()
+    return _redirect(
+        message=f"{code}: {len(serie)} cotizaciones entre {serie[0][0]} y {serie[-1][0]} "
+        f"({rate_api.history_label(origen)})"
+    )
+
+
+@router.post("/historico/borrar")
+def clear_history(
+    db: Session = Depends(get_db),
+    _: str = Depends(require_user),
+    code: str = Form(...),
+):
+    base = base_currency(db)
+    code = cur.normalize_code(code, "").upper()
+    db.execute(delete(RateHistory).where(RateHistory.code == code, RateHistory.base == base))
+    db.commit()
+    return _redirect(message=f"Se borro el historico de {code}")

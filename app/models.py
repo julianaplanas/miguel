@@ -109,3 +109,20 @@ class AppSetting(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class RateHistory(Base):
+    """Cotizacion de una moneda en una fecha concreta.
+
+    Con inflacion alta, convertir un gasto de enero al tipo de hoy deforma
+    cualquier comparacion entre meses. Guardando la serie se puede convertir
+    cada movimiento al tipo que regia el dia que ocurrio.
+    """
+
+    __tablename__ = "rate_history"
+
+    code: Mapped[str] = mapped_column(String(8), primary_key=True)
+    base: Mapped[str] = mapped_column(String(8), primary_key=True)
+    date: Mapped[dt.date] = mapped_column(Date, primary_key=True)
+    rate: Mapped[float] = mapped_column(Float, default=1.0)
+    source: Mapped[str] = mapped_column(String(64), default="")

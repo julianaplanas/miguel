@@ -3,7 +3,7 @@
 
 {% block content %}
 <h1>Archivos</h1>
-<p class="subtitle">Sube CSV, TSV o Excel. Solo los archivos <strong>activos</strong> cuentan en el dashboard y en el chat.</p>
+<p class="subtitle">Sube CSV, TSV, Excel o PDF (resumenes de banco y tarjeta). Solo los archivos <strong>activos</strong> cuentan en el dashboard y en el chat.</p>
 
 {% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
 {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
@@ -16,7 +16,7 @@
   <div class="filters" style="margin:0; border:0; padding:0; background:transparent">
     <div class="field">
       <label for="file">Archivo</label>
-      <input id="file" type="file" name="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls" required>
+      <input id="file" type="file" name="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.pdf" required>
     </div>
     <div class="field">
       <label for="default_person">Persona por defecto (opcional)</label>

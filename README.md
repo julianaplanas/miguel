@@ -13,13 +13,35 @@ Pensada para desplegarse en **Railway** con un par de variables de entorno.
 
 | Pantalla | Para qué sirve |
 |---|---|
-| **/archivos** | Subir CSV/TSV/Excel, activar o desactivar cada archivo, corregir el mapeo de columnas, descargar o borrar. |
+| **/archivos** | Subir CSV/TSV/Excel/PDF, activar o desactivar cada archivo, corregir el mapeo de columnas, descargar o borrar. |
 | **/** (dashboard) | KPIs, evolución mensual, gasto por categoría, por persona, cruce persona × categoría, gasto por día de la semana, mayores gastos, tabla de movimientos, exportación a CSV. |
 | **/chat** | Preguntas en lenguaje natural sobre los datos activos. El modelo puede devolver gráficos que se dibujan en la conversación. |
-| **/ajustes** | Moneda base y tipos de cambio (traídos de una API o escritos a mano). |
+| **/ajustes** | Moneda base, modo de conversión y tipos de cambio (de una API o a mano). |
 
 Solo los archivos marcados como **activos** entran en el dashboard y en el chat,
 así que puedes tener varios exports subidos y combinarlos o aislarlos sin borrar nada.
+
+## Resúmenes en PDF
+
+Además de CSV y Excel se aceptan **PDFs de banco y tarjeta**. Se intentan dos
+lecturas: primero las tablas reales del PDF, y si no hay, las líneas de texto
+buscando el patrón habitual de un resumen argentino (fecha al principio,
+descripción, e importe al final).
+
+Lo que hace bien:
+
+- Fechas sin año (`15/03`), tomando el año de la cabecera del documento.
+- Líneas con **importe y saldo** en la misma fila: se queda con el movimiento,
+  no con el saldo acumulado.
+- Descarta arrastres de saldo y totales (`SALDO ANTERIOR`, `SUBTOTAL`…), que si
+  no inflarían el gasto con dinero que nunca se movió.
+- Detecta `US$` y `U$S` por consumo, así que un resumen de tarjeta con compras
+  en pesos y en dólares se importa con cada moneda en su sitio.
+
+Límites honestos: **un PDF escaneado no sirve** (no tiene capa de texto; la app
+lo dice en vez de importar basura), y cada banco maqueta distinto. Si tu resumen
+no sale bien, el mapeo de columnas se corrige a mano desde Archivos, o exportá
+el CSV desde el homebanking, que siempre es más fiable.
 
 ## Formato de los archivos
 
@@ -78,6 +100,27 @@ cotizaciones** refresca todo con el mismo criterio. Detalles que importan:
 - Un tipo escrito **a mano nunca se pisa** al actualizar.
 - Si la API falla, **se conserva el valor anterior** y se avisa del error.
 - Junto a cada tipo se ve de dónde salió y hace cuánto se actualizó.
+
+### Cuándo se convierte: hoy o el día del gasto
+
+En Ajustes se elige entre dos modos, y la diferencia es grande con inflación alta:
+
+- **Tipo de cambio actual** — todo al valor de hoy. Responde "cuánto valdría hoy
+  lo que gasté".
+- **Tipo del día de cada movimiento** — cada gasto al valor que regía el día que
+  ocurrió. Es el que hay que usar para **comparar meses entre sí**: convertir
+  enero al dólar de hoy aplana la evolución y hace que un gasto que subió parezca
+  constante.
+
+Para el segundo modo hay que descargar el histórico de cada moneda (un botón por
+moneda, que pide solo el período que cubren tus movimientos). Sale de
+[api.argentinadatos.com](https://argentinadatos.com) para el dólar contra el peso
+—con la misma casa que elijas: blue, oficial, MEP…— y de
+[frankfurter.app](https://frankfurter.app) para el resto.
+
+Si un movimiento cae en fin de semana o feriado se usa la última cotización
+anterior. Lo que no tenga histórico cae al tipo actual, y el dashboard dice
+cuántos movimientos fueron en vez de disimularlo.
 
 **Convención de signo**: internamente un importe **positivo es un gasto** y uno
 **negativo es un ingreso**. En un extracto bancario (donde los gastos vienen en
@@ -150,8 +193,9 @@ app/
   ingest.py       lectura de CSV/Excel y normalización a transacciones
   analytics.py    agregaciones (por categoría, persona, mes, cruce…) y conversión de moneda
   currency.py     detección y normalización de monedas (ARS, USD, `US$`, `U$S`…)
-  rates.py        cotizaciones automáticas (dolarapi y open.er-api)
-  preferences.py  preferencias guardadas en la base (moneda base)
+  rates.py        cotizaciones del día e históricas (dolarapi, er-api, argentinadatos, frankfurter)
+  pdf_import.py   lectura de resúmenes bancarios en PDF
+  preferences.py  preferencias guardadas en la base (moneda base, modo de conversión)
   llm.py          cliente de OpenRouter y contexto de datos del chat
   routers/        auth, archivos, dashboard, chat, ajustes
   templates/      Jinja2

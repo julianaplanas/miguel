@@ -39,6 +39,43 @@
 
   <div class="card">
     <div class="card-head">
+      <h2>Como se convierte</h2>
+      <span class="hint">Solo afecta a la vista "Todo en {{ base }}"</span>
+    </div>
+    <form method="post" action="/ajustes/modo-conversion" class="stack" style="gap:10px">
+      <label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer">
+        <input type="radio" name="mode" value="{{ mode_current }}" {{ 'checked' if mode == mode_current }}
+               style="margin-top:4px; min-width:auto">
+        <span>
+          <strong>Tipo de cambio actual</strong><br>
+          <span style="color:var(--text-secondary); font-size:13px">
+            Todo se convierte al tipo de hoy. Sirve para saber cuanto valdria hoy lo que gastaste.
+          </span>
+        </span>
+      </label>
+      <label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer">
+        <input type="radio" name="mode" value="{{ mode_historical }}" {{ 'checked' if mode == mode_historical }}
+               style="margin-top:4px; min-width:auto">
+        <span>
+          <strong>Tipo del dia de cada movimiento</strong><br>
+          <span style="color:var(--text-secondary); font-size:13px">
+            Cada gasto se convierte al tipo que regia el dia que ocurrio. Es lo que hace falta
+            para comparar meses entre si: con inflacion alta, convertir enero al dolar de hoy
+            deforma la comparacion. Necesita descargar el historico de cada moneda.
+          </span>
+        </span>
+      </label>
+      <div>
+        <button type="submit" class="btn-primary btn-sm">Guardar</button>
+        {% if period %}
+        <span class="file-meta">Tus movimientos van del {{ period[0] }} al {{ period[1] }}.</span>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
       <h2>Tipos de cambio</h2>
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
         <span class="hint">Cuantos {{ base }} vale una unidad de cada moneda</span>
@@ -98,6 +135,24 @@
                   <button type="submit" class="btn-sm">Guardar</button>
                 </form>
 
+                <form method="post" action="/ajustes/historico"
+                      style="display:flex; gap:6px; align-items:center">
+                  <input type="hidden" name="code" value="{{ row.code }}">
+                  <button type="submit" class="btn-sm"
+                          title="Descarga la cotizacion diaria del periodo de tus movimientos">
+                    {{ 'Actualizar historico' if row.history else 'Descargar historico' }}
+                  </button>
+                </form>
+
+                <span class="file-meta">
+                  {% if row.history %}
+                    {{ row.history.days }} dias · {{ row.history["from"] }} a {{ row.history.to }}
+                    ({{ row.history_label }})
+                  {% else %}
+                    Sin historico
+                  {% endif %}
+                </span>
+
                 <span class="file-meta">
                   {% if row.stale_base %}
                     Guardado contra otra moneda base: vuelve a cargarlo.
@@ -132,7 +187,14 @@
         Hace falta tener cargadas todas las monedas que aparezcan en los datos.</li>
       <li>La tabla de movimientos y el CSV exportado llevan siempre el importe y la moneda
         originales.</li>
-      <li>Las cotizaciones salen de <a href="https://dolarapi.com" target="_blank" rel="noopener">dolarapi.com</a>
+      <li>Con el modo <strong>tipo del dia</strong>, si un movimiento cae en fin de semana o
+        feriado se usa la ultima cotizacion anterior. Lo que no tenga historico cae al tipo
+        actual y el dashboard te dice cuantos movimientos fueron.</li>
+      <li>El historico diario sale de
+        <a href="https://argentinadatos.com" target="_blank" rel="noopener">api.argentinadatos.com</a>
+        (dolar contra el peso, con la misma casa que elijas arriba) y de
+        <a href="https://frankfurter.app" target="_blank" rel="noopener">frankfurter.app</a> para el resto.</li>
+      <li>Las cotizaciones del dia salen de <a href="https://dolarapi.com" target="_blank" rel="noopener">dolarapi.com</a>
         (dolar, euro, real, peso chileno y uruguayo contra el peso argentino) y de
         <a href="https://open.er-api.com" target="_blank" rel="noopener">open.er-api.com</a> para el resto.
         Ninguna necesita clave.</li>

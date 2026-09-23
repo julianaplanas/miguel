@@ -7,6 +7,7 @@ resumen lo dice en vez de devolver un total inventado.
 """
 from __future__ import annotations
 
+import bisect
 import datetime as dt
 from collections import defaultdict
 from dataclasses import dataclass
@@ -15,8 +16,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ExchangeRate, Transaction, UploadedFile
-from app.preferences import base_currency
+from app.models import ExchangeRate, RateHistory, Transaction, UploadedFile
+from app.preferences import MODE_HISTORICAL, base_currency, conversion_mode
 
 
 @dataclass
@@ -63,6 +64,72 @@ def get_rates(db: Session) -> dict[str, float]:
         if row.rate and row.rate > 0:
             rates[code] = float(row.rate)
     return rates
+
+
+
+def get_history(db: Session, base: str) -> dict[str, tuple[list[dt.date], list[float]]]:
+    """Serie historica por moneda: (fechas ordenadas, tipos) hacia `base`."""
+    filas = db.execute(
+        select(RateHistory.code, RateHistory.date, RateHistory.rate)
+        .where(RateHistory.base == base)
+        .order_by(RateHistory.code, RateHistory.date)
+    ).all()
+    series: dict[str, tuple[list[dt.date], list[float]]] = {}
+    for code, fecha, valor in filas:
+        code = (code or "").upper()
+        if not fecha or not valor or valor <= 0:
+            continue
+        fechas, valores = series.setdefault(code, ([], []))
+        fechas.append(fecha)
+        valores.append(float(valor))
+    return series
+
+
+class Converter:
+    """Convierte importes a la moneda base.
+
+    En modo `historical` cada movimiento usa el tipo de cambio de su propia
+    fecha (el del dia habil anterior si ese dia no cotizo). Lo que no tenga
+    historico cae al tipo actual, y esas filas se cuentan aparte para poder
+    avisarlo en vez de disimularlo.
+    """
+
+    def __init__(self, db: Session, base: str, mode: str) -> None:
+        self.base = base
+        self.mode = mode
+        self.current = get_rates(db)
+        self.history = get_history(db, base) if mode == MODE_HISTORICAL else {}
+        self.fallbacks = 0
+        self.fallback_currencies: set[str] = set()
+
+    def has_any(self, code: str) -> bool:
+        return code == self.base or code in self.current or code in self.history
+
+    def _historical(self, code: str, date: dt.date) -> float | None:
+        serie = self.history.get(code)
+        if not serie:
+            return None
+        fechas, valores = serie
+        # Ultima cotizacion en la fecha o antes (fines de semana, feriados).
+        indice = bisect.bisect_right(fechas, date) - 1
+        if indice < 0:
+            return None
+        return valores[indice]
+
+    def factor(self, code: str, date: dt.date | None) -> float | None:
+        if code == self.base:
+            return 1.0
+        if self.mode == MODE_HISTORICAL and date is not None:
+            valor = self._historical(code, date)
+            if valor is not None:
+                return valor
+        actual = self.current.get(code)
+        if actual is None:
+            return None
+        if self.mode == MODE_HISTORICAL:
+            self.fallbacks += 1
+            self.fallback_currencies.add(code)
+        return actual
 
 
 def fetch_rows(db: Session, filters: Filters) -> list[dict[str, Any]]:
@@ -134,14 +201,16 @@ def _sorted_totals(totals: dict[str, float], limit: int | None = None) -> list[d
 
 def build_summary(db: Session, filters: Filters, top_n: int = 8) -> dict[str, Any]:
     base = base_currency(db)
+    modo = conversion_mode(db)
     rows = fetch_rows(db, filters)
-    rates = get_rates(db)
+    conv = Converter(db, base, modo)
+    rates = conv.current
 
     presentes = currencies_in(rows)
     seleccionada = (filters.currency or "").upper()
     convertido = not seleccionada and len(presentes) > 1
-    # Monedas presentes para las que no hay tipo de cambio cargado.
-    faltan = [c for c in presentes if c not in rates] if convertido else []
+    # Monedas presentes sin ningun tipo de cambio (ni actual ni historico).
+    faltan = [c for c in presentes if not conv.has_any(c)] if convertido else []
 
     # El desglose por moneda se calcula sobre TODO lo que hay en el periodo,
     # incluso lo que despues no se pueda convertir: es la vista que explica
@@ -158,14 +227,17 @@ def build_summary(db: Session, filters: Filters, top_n: int = 8) -> dict[str, An
         rows = [r for r in rows if r["currency"] == seleccionada]
         convertido = False
 
-    if seleccionada:
-        moneda_salida = seleccionada
+    if seleccionada or len(presentes) == 1:
+        # Una sola moneda: se muestra tal cual, sin convertir ni pedir tipo
+        # de cambio. Convertirla y seguir etiquetandola con su codigo
+        # original daria cifras que no son ni una cosa ni la otra.
+        moneda_salida = seleccionada or (presentes[0] if presentes else base)
         for r in rows:
             r["valor"] = r["amount"]
     else:
-        moneda_salida = presentes[0] if len(presentes) == 1 else base
+        moneda_salida = base
         for r in rows:
-            r["valor"] = r["amount"] * rates.get(r["currency"], 1.0)
+            r["valor"] = r["amount"] * (conv.factor(r["currency"], r["date"]) or 1.0)
 
     gastos = [r for r in rows if r["valor"] > 0]
     ingresos = [r for r in rows if r["valor"] < 0]
@@ -223,6 +295,9 @@ def build_summary(db: Session, filters: Filters, top_n: int = 8) -> dict[str, An
     return {
         "currency": moneda_salida,
         "converted": convertido,
+        "mode": modo,
+        "historical_fallbacks": conv.fallbacks if convertido else 0,
+        "fallback_currencies": sorted(conv.fallback_currencies) if convertido else [],
         "currencies": presentes,
         "missing_rates": faltan,
         "rates": {c: rates[c] for c in presentes if c in rates},
@@ -303,12 +378,16 @@ def available_options(db: Session) -> dict[str, Any]:
         if fecha:
             fechas.append(fecha)
     rates = get_rates(db)
+    historia = get_history(db, base)
     return {
         "persons": sorted(personas),
         "categories": sorted(categorias),
         "currencies": sorted(monedas),
         "base_currency": base,
-        "missing_rates": sorted(c for c in monedas if c not in rates),
+        "conversion_mode": conversion_mode(db),
+        "missing_rates": sorted(
+            c for c in monedas if c != base and c not in rates and c not in historia
+        ),
         "date_min": min(fechas).isoformat() if fechas else None,
         "date_max": max(fechas).isoformat() if fechas else None,
     }

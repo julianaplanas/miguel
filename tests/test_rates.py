@@ -17,6 +17,8 @@ from app.main import app
 from app.models import AppSetting, ExchangeRate, Transaction, UploadedFile
 from app.preferences import base_currency, set_base_currency
 
+from tests.conftest import reset_db
+
 CSV = (
     "fecha,concepto,categoria,persona,importe,moneda\n"
     "2026-03-01,Verduleria,Comida,Ana,45000,ARS\n"
@@ -61,13 +63,8 @@ def fake_api(monkeypatch):
 
 @pytest.fixture
 def auth():
-    init_db()
+    reset_db()
     with SessionLocal() as db:
-        db.execute(delete(Transaction))
-        db.execute(delete(UploadedFile))
-        db.execute(delete(ExchangeRate))
-        db.execute(delete(AppSetting))
-        db.commit()
         set_base_currency(db, "ARS")
     with TestClient(app) as client:
         client.post(
