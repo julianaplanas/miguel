@@ -213,3 +213,53 @@ def test_pagina_de_categorias(auth):
     assert page.status_code == 200
     # La descripcion que no se pudo categorizar aparece para asignarla.
     assert "QWERTY SRL 00012345" in page.text
+
+
+# --------------------------- palabras de mecanismo ---------------------------
+
+def test_el_mecanismo_no_le_gana_al_proposito():
+    """Un extracto argentino repite 'TRANSFERENCIA' y 'VISA' en casi toda
+    linea. Si esas palabras ganan por ser largas, se comen el extracto."""
+    reglas = sort_rules(default_rules())
+    casos = {
+        "PAGO TRANSFERENCIA EDENOR": "Servicios",
+        "TRANSFERENCIA A TERCEROS ALQUILER": "Vivienda",
+        "TRANSF. A MERCADOPAGO NETFLIX": "Suscripciones",
+        "COMPRA VISA DEBITO COTO": "Supermercado",
+        "COMPRA CON TARJETA VISA FARMACITY": "Salud",
+    }
+    for descripcion, esperada in casos.items():
+        resultado = categorize(descripcion, reglas)
+        assert resultado is not None, descripcion
+        assert resultado[0] == esperada, descripcion
+
+
+def test_el_mecanismo_vale_cuando_no_hay_nada_mejor():
+    reglas = sort_rules(default_rules())
+    assert categorize("TRANSFERENCIA RECIBIDA JUAN PEREZ", reglas)[0] == "Transferencias"
+    assert categorize("DEBIN ENVIADO", reglas)[0] == "Transferencias"
+    assert categorize("PAGO TARJETA VISA", reglas)[0] == "Pago de tarjeta"
+
+
+# --------------------------- diagnostico ---------------------------
+
+def test_la_pantalla_dice_quien_decidio_cada_categoria(auth):
+    page = auth.get("/categorias?ver=todas")
+    assert page.status_code == 200
+    assert "Decidio" in page.text
+    # COTO lo resolvio una regla de fabrica.
+    assert "una regla" in page.text
+
+
+def test_la_pantalla_avisa_cuando_el_modelo_no_esta(auth):
+    """Sin OPENROUTER_API_KEY hay que decirlo, no dejar al usuario adivinando."""
+    page = auth.get("/categorias")
+    assert "solo con reglas" in page.text
+    assert "OPENROUTER_API_KEY" in page.text
+
+
+def test_ver_todas_incluye_las_ya_categorizadas(auth):
+    pendientes = auth.get("/categorias?ver=pendientes").text
+    todas = auth.get("/categorias?ver=todas").text
+    assert "COMPRA COTO DIGITAL" not in pendientes
+    assert "COMPRA COTO DIGITAL" in todas

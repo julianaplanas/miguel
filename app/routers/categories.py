@@ -14,7 +14,14 @@ from app.db import get_db
 from app.deps import require_user, templates
 from app.llm import OpenRouterError, suggest_categories
 from app.models import CategoryRule, Transaction
-from app.rules import apply_rule, recategorize, save_rule, uncategorized_descriptions
+from app.preferences import CAT_AI, categorization_mode
+from app.rules import (
+    apply_rule,
+    description_summary,
+    recategorize,
+    save_rule,
+    uncategorized_descriptions,
+)
 
 router = APIRouter(prefix="/categorias")
 
@@ -45,8 +52,10 @@ def categories_page(
     _: str = Depends(require_user),
     message: str | None = None,
     error: str | None = None,
+    ver: str = "pendientes",
 ):
-    pendientes = uncategorized_descriptions(db)
+    solo_pendientes = ver != "todas"
+    descripciones = description_summary(db, only_uncategorized=solo_pendientes)
     reglas = (
         db.execute(select(CategoryRule).order_by(CategoryRule.created_at.desc())).scalars().all()
     )
@@ -57,16 +66,24 @@ def categories_page(
         ).scalar()
         or 0
     )
+    chat_enabled = get_settings().chat_enabled
+    modo = categorization_mode(db)
     return templates.TemplateResponse(
         request,
         "categories.html",
         {
-            "pending": pendientes,
+            "descriptions": descripciones,
+            "ver": "pendientes" if solo_pendientes else "todas",
+            "mode": modo,
+            "mode_is_ai": modo == CAT_AI and chat_enabled,
+            "mode_reason": (
+                "" if chat_enabled else "falta la variable OPENROUTER_API_KEY"
+            ),
             "rules": reglas,
             "categories": _known_categories(db),
             "total": total,
             "uncategorized": sin_categoria,
-            "chat_enabled": get_settings().chat_enabled,
+            "chat_enabled": chat_enabled,
             "message": message,
             "error": error,
             "active_page": "categories",

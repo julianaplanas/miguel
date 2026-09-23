@@ -15,6 +15,19 @@
 {% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
 {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
 
+<div class="flash {{ 'ok' if mode_is_ai else 'err' }}">
+  {% if mode_is_ai %}
+    <strong>Categorizando con el modelo.</strong> Al importar, cada descripcion nueva se le
+    pregunta y la respuesta queda guardada como regla.
+  {% else %}
+    <strong>Categorizando solo con reglas</strong>{% if mode_reason %} ({{ mode_reason }}){% endif %}.
+    Las reglas de fabrica reconocen los comercios mas comunes, pero no una descripcion
+    cualquiera. Para que decida el modelo,
+    {% if mode_reason %}configura <code>OPENROUTER_API_KEY</code> y{% endif %}
+    elegilo en <a href="/ajustes">Ajustes</a>.
+  {% endif %}
+</div>
+
 <div class="stack">
   <div class="card">
     <div class="card-head">
@@ -50,12 +63,24 @@
 
   <div class="card">
     <div class="card-head">
-      <h2>Sin categorizar</h2>
-      <span class="hint">Agrupado por descripcion, de mayor a menor importe</span>
+      <h2>Descripciones</h2>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+        <span class="hint">Agrupadas, de mayor a menor importe</span>
+        <a class="btn btn-sm" href="/categorias?ver=pendientes"
+           {{ 'aria-current=page' if ver == 'pendientes' }}>Sin categorizar</a>
+        <a class="btn btn-sm" href="/categorias?ver=todas"
+           {{ 'aria-current=page' if ver == 'todas' }}>Todas</a>
+      </div>
     </div>
-    {% if not pending %}
-      <p class="subtitle" style="margin:0">No queda nada sin categorizar.</p>
+    {% if not descriptions %}
+      <p class="subtitle" style="margin:0">
+        {% if ver == 'pendientes' %}No queda nada sin categorizar.{% else %}No hay movimientos.{% endif %}
+      </p>
     {% else %}
+    <p class="subtitle" style="margin:0 0 10px; font-size:13px">
+      La columna <strong>Decidio</strong> dice de donde salio cada categoria. Si todo dice
+      "una regla", el modelo no esta interviniendo.
+    </p>
     <div class="table-wrap table-scroll">
       <table>
         <thead>
@@ -63,24 +88,36 @@
             <th>Descripcion</th>
             <th class="num">Veces</th>
             <th class="num">Total</th>
-            <th>Asignar categoria</th>
+            <th>Categoria</th>
+            <th>Decidio</th>
+            <th>Cambiar</th>
           </tr>
         </thead>
         <tbody>
-          {% for descripcion, veces, total_importe in pending %}
+          {% for fila in descriptions %}
           <tr>
-            <td style="white-space:normal">{{ descripcion }}</td>
-            <td class="num">{{ veces }}</td>
-            <td class="num">{{ total_importe }}</td>
+            <td style="white-space:normal">{{ fila.descripcion }}</td>
+            <td class="num">{{ fila.veces }}</td>
+            <td class="num">{{ fila.total }}</td>
+            <td>
+              {% if fila.pendiente %}
+                <span style="color:var(--text-muted); font-style:italic">Sin categoria</span>
+              {% else %}
+                {{ fila.categoria }}
+              {% endif %}
+            </td>
+            <td style="color:var(--text-muted); font-size:13px">{{ fila.origen_label }}</td>
             <td>
               <form method="post" action="/categorias/regla"
                     style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
-                <input type="hidden" name="pattern" value="{{ descripcion }}">
-                <select name="category" aria-label="Categoria para {{ descripcion }}">
-                  {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+                <input type="hidden" name="pattern" value="{{ fila.descripcion }}">
+                <select name="category" aria-label="Categoria para {{ fila.descripcion }}">
+                  {% for c in categories %}
+                  <option value="{{ c }}" {{ 'selected' if c == fila.categoria }}>{{ c }}</option>
+                  {% endfor %}
                 </select>
                 <input type="text" name="category_new" placeholder="u otra nueva"
-                       style="min-width:130px" aria-label="Categoria nueva">
+                       style="min-width:120px" aria-label="Categoria nueva">
                 <button type="submit" class="btn-sm">Asignar</button>
               </form>
             </td>

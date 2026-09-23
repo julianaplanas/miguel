@@ -181,3 +181,48 @@ async def ai_categorize_pending(db: Session, limit: int = 200) -> tuple[int, int
         creadas += 1
         aplicados += apply_rule(db, descripcion, categoria)
     return creadas, aplicados
+
+
+ORIGIN_LABELS = {
+    SOURCE_MANUAL: "corregida a mano",
+    SOURCE_AI: "el modelo",
+    SOURCE_RULE: "una regla",
+    SOURCE_FILE: "venia en el archivo",
+    SOURCE_NONE: "—",
+}
+
+
+def description_summary(
+    db: Session, only_uncategorized: bool = False, limit: int = 300
+) -> list[dict]:
+    """Descripciones distintas con su categoria y QUIEN la decidio.
+
+    Ver el origen es lo que permite entender por que algo quedo mal: si
+    todo dice "una regla", el modelo no esta interviniendo.
+    """
+    agrupadas: dict[str, dict] = {}
+    for tx in db.execute(select(Transaction)).scalars().all():
+        clave = (tx.description or "").strip()
+        if not clave:
+            continue
+        if only_uncategorized and not is_uncategorized(tx.category):
+            continue
+        entrada = agrupadas.setdefault(
+            clave,
+            {
+                "descripcion": clave,
+                "veces": 0,
+                "total": 0.0,
+                "categoria": tx.category or UNCATEGORIZED,
+                "origen": tx.category_source or SOURCE_NONE,
+            },
+        )
+        entrada["veces"] += 1
+        entrada["total"] += abs(float(tx.amount or 0.0))
+
+    ordenadas = sorted(agrupadas.values(), key=lambda e: e["total"], reverse=True)
+    for entrada in ordenadas:
+        entrada["total"] = round(entrada["total"], 2)
+        entrada["origen_label"] = ORIGIN_LABELS.get(entrada["origen"], entrada["origen"])
+        entrada["pendiente"] = is_uncategorized(entrada["categoria"])
+    return ordenadas[:limit]

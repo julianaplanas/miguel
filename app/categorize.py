@@ -205,10 +205,13 @@ DEFAULT_RULES: list[tuple[str, str]] = [
     ("extraccion", "Efectivo"),
     ("banelco", "Efectivo"),
     ("transferencia", "Transferencias"),
+    ("transf.", "Transferencias"),
+    ("debin", "Transferencias"),
     ("pago tarjeta", "Pago de tarjeta"),
     ("pago de tarjeta", "Pago de tarjeta"),
     ("visa", "Pago de tarjeta"),
     ("mastercard", "Pago de tarjeta"),
+    ("amex", "Pago de tarjeta"),
     # --- Ingresos ---
     ("sueldo", "Ingresos"),
     ("haberes", "Ingresos"),
@@ -229,6 +232,20 @@ HIGH_PRIORITY = {
     "aguinaldo",
     "alquiler",
     "expensas",
+}
+
+# Palabras que describen COMO se movio la plata, no en que se gasto. Solo
+# valen si ninguna otra regla dijo algo: "PAGO TRANSFERENCIA EDENOR" es un
+# servicio, no una transferencia, y "COMPRA VISA DEBITO COTO" es el
+# supermercado, no un pago de tarjeta. Sin esto se comen medio extracto,
+# porque son palabras largas que aparecen en casi todas las lineas.
+LOW_PRIORITY = {
+    "transferencia",
+    "transf.",
+    "debin",
+    "visa",
+    "mastercard",
+    "amex",
 }
 
 
@@ -253,13 +270,15 @@ class Rule:
 
 
 def default_rules() -> list[Rule]:
+    def _prioridad(patron: str) -> int:
+        if patron in HIGH_PRIORITY:
+            return 10
+        if patron in LOW_PRIORITY:
+            return -10
+        return 0
+
     return [
-        Rule(
-            pattern=p,
-            category=c,
-            source="default",
-            priority=10 if p in HIGH_PRIORITY else 0,
-        )
+        Rule(pattern=p, category=c, source="default", priority=_prioridad(p))
         for p, c in DEFAULT_RULES
     ]
 
@@ -269,7 +288,10 @@ def sort_rules(rules: list[Rule]) -> list[Rule]:
 
     A igual prioridad gana el patron mas largo, que es el mas especifico:
     'hbo max' le gana a 'max', y una regla propia como 'coto digital' le
-    gana a la de fabrica 'coto'.
+    gana a la de fabrica 'coto'. La prioridad existe porque la longitud
+    sola engana en los dos sentidos: hay palabras cortas que definen el
+    movimiento ('sueldo') y palabras largas que no dicen nada del gasto
+    ('transferencia').
     """
     return sorted(
         rules,

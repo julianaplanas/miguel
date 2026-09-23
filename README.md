@@ -45,6 +45,22 @@ estaciones de servicio, peajes, prepagas, servicios, impuestos, comisiones
 bancarias, sueldos). Sirven como respaldo sin red, no como la vía de crecimiento:
 para un comercio nuevo no hace falta tocar código.
 
+Entre reglas gana la más específica, pero la longitud del texto engaña en los dos
+sentidos, así que hay dos excepciones:
+
+- **Prioridad alta** para palabras cortas que definen el movimiento: `sueldo`,
+  `alquiler`, `expensas`. Sin esto, `TRANSFERENCIA RECIBIDA SUELDO` sería una
+  transferencia en vez de un ingreso.
+- **Prioridad baja** para las que describen el *mecanismo* y no el propósito:
+  `transferencia`, `debin`, `visa`, `mastercard`. Aparecen en casi todas las
+  líneas de un extracto argentino, así que si ganaran por ser largas se comerían
+  el resumen entero: `PAGO TRANSFERENCIA EDENOR` es un servicio, y
+  `COMPRA VISA DEBITO COTO` es el supermercado.
+
+En **/categorias** la columna *Decidió* muestra de dónde salió cada categoría
+(una regla, el modelo, tu corrección o el archivo), y un aviso arriba dice qué
+estrategia está activa — útil cuando algo queda mal y no sabés por qué.
+
 En Ajustes se puede cambiar a **solo reglas**, que no consulta al modelo.
 
 Para corregir:
