@@ -46,6 +46,11 @@
       <form method="post" action="/categorias/sugerir">
         <button type="submit" class="btn-sm btn-primary">Sugerir con IA</button>
       </form>
+      <form method="post" action="/categorias/probar">
+        <button type="submit" class="btn-sm" title="Hace una llamada de prueba al modelo">
+          Probar el modelo
+        </button>
+      </form>
       {% endif %}
     </div>
     <p class="subtitle" style="margin:12px 0 0; font-size:13px">
@@ -55,6 +60,8 @@
       <strong>Sugerir con IA</strong> le manda al modelo solo las descripciones distintas que
       quedan sin categorizar y crea una regla por cada una, para que las revises. Si ya
       tenes la categorizacion con IA activada, esto corre solo al importar.
+      <strong>Probar el modelo</strong> hace una llamada real y muestra que contesto o que
+      error dio: sirve para descartar clave mal puesta, modelo inexistente o falta de credito.
       {% else %}
       Para sugerir categorias con IA hace falta configurar <code>OPENROUTER_API_KEY</code>.
       {% endif %}

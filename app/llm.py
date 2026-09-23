@@ -101,7 +101,11 @@ def build_messages(
     return messages
 
 
-async def complete(messages: list[dict[str, str]], model: str | None = None) -> str:
+async def complete(
+    messages: list[dict[str, str]],
+    model: str | None = None,
+    max_tokens: int = 4000,
+) -> str:
     settings = get_settings()
     if not settings.openrouter_api_key:
         raise OpenRouterError(
@@ -111,7 +115,7 @@ async def complete(messages: list[dict[str, str]], model: str | None = None) -> 
         "model": model or settings.openrouter_model,
         "messages": messages,
         "temperature": 0.2,
-        "max_tokens": 1500,
+        "max_tokens": max_tokens,
     }
     headers = {
         "Authorization": f"Bearer {settings.openrouter_api_key}",
@@ -159,22 +163,35 @@ async def list_models(limit: int = 60) -> list[dict[str, str]]:
     return models[:limit] if limit else models
 
 
-CATEGORIZE_PROMPT = """Sos un asistente que clasifica gastos bancarios argentinos.
+CATEGORIZE_PROMPT = """Sos un asistente que clasifica movimientos de cuentas
+bancarias argentinas.
 
-Te paso descripciones tal como las imprime un resumen de banco o tarjeta
-(abreviadas, en mayusculas, con codigos). Para cada una, decidi la categoria.
+Te paso una linea por movimiento: la descripcion tal como la imprime el banco
+(abreviada, en mayusculas, con codigos), y entre parentesis si es gasto o
+ingreso y su importe tipico en {moneda}. Para cada descripcion, decidi la
+categoria.
 
 Categorias preferidas: {categorias}
 
 Reglas:
-- Usa una de las categorias preferidas siempre que encaje. Si ninguna sirve,
-  invent una corta y clara.
-- Si una descripcion es demasiado generica para saberlo (por ejemplo un
-  numero de operacion suelto), devolve "Sin categoria". No adivines.
-- Responde SOLO con un objeto JSON {{"descripcion": "categoria", ...}}, sin
+- Usa una de las preferidas siempre que encaje, aunque no sea perfecta. Solo
+  invent una nueva si ninguna sirve; que sea corta y no una variante de otra
+  que ya existe (no agregues "Comida" si ya esta "Restaurantes").
+- La descripcion suele decir COMO se movio la plata ademas de para que.
+  Clasifica por el destino, no por el medio: "PAGO TRANSFERENCIA EDENOR" es
+  Servicios y "COMPRA VISA DEBITO COTO" es Supermercado. Usa Transferencias o
+  Pago de tarjeta solo cuando no haya ningun indicio de a que corresponde.
+- El importe ayuda a desambiguar: un alquiler no son mil pesos, y un kiosco no
+  son quinientos mil.
+- Los movimientos marcados como ingreso casi nunca son un gasto: un sueldo,
+  una devolucion o una transferencia recibida no van en una categoria de
+  consumo.
+- Si la descripcion no alcanza (un numero de operacion suelto, un codigo
+  interno), devolve "Sin categoria". No adivines.
+- Responde SOLO con un objeto JSON {{"descripcion": "categoria", ...}}, con
+  una clave por descripcion recibida y la descripcion EXACTA como clave, sin
   texto alrededor ni bloques de codigo.
 """
-
 
 def _parse_json_object(texto: str) -> dict[str, str]:
     """Saca el objeto JSON de la respuesta, tolerando bloques de codigo."""
@@ -194,17 +211,48 @@ def _parse_json_object(texto: str) -> dict[str, str]:
     return {str(k): str(v) for k, v in datos.items()}
 
 
-async def suggest_categories(descriptions: list[str], model: str | None = None) -> dict[str, str]:
-    """Pide al modelo una categoria por descripcion."""
+async def suggest_categories(
+    descriptions: list[str] | list[dict],
+    model: str | None = None,
+) -> dict[str, str]:
+    """Pide al modelo una categoria por descripcion.
+
+    Acepta texto suelto o diccionarios con `descripcion`, `importe` y
+    `es_gasto`: el importe y el signo ayudan a desambiguar.
+    """
     if not descriptions:
         return {}
-    system = CATEGORIZE_PROMPT.format(categorias=", ".join(SUGGESTED))
-    usuario = "\n".join(f"- {d}" for d in descriptions[:200])
+
+    settings = get_settings()
+    system = CATEGORIZE_PROMPT.format(
+        categorias=", ".join(SUGGESTED), moneda=settings.currency
+    )
+
+    lineas = []
+    for item in descriptions[:200]:
+        if isinstance(item, dict):
+            texto = str(item.get("descripcion", "")).strip()
+            if not texto:
+                continue
+            tipo = "gasto" if item.get("es_gasto", True) else "ingreso"
+            importe = item.get("importe")
+            if importe is None:
+                lineas.append(f"- {texto} ({tipo})")
+            else:
+                lineas.append(f"- {texto} ({tipo}, {importe:,.2f})")
+        else:
+            lineas.append(f"- {item}")
+    if not lineas:
+        return {}
+
     respuesta = await complete(
         [
             {"role": "system", "content": system},
-            {"role": "user", "content": usuario},
+            {"role": "user", "content": "\n".join(lineas)},
         ],
         model=model,
+        # Una categoria por descripcion ocupa bastante: con el limite viejo
+        # de 1500 la respuesta se cortaba y se perdia el lote entero.
+        max_tokens=16000,
     )
     return _parse_json_object(respuesta)

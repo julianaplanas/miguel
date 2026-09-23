@@ -168,3 +168,33 @@ async def suggest(
         message=f"El modelo sugirio {creadas} categorias y se aplicaron a {aplicados} movimientos. "
         "Revisalas abajo: las que no te convenzan, borralas o corregilas."
     )
+
+
+@router.post("/probar")
+async def probe(db: Session = Depends(get_db), _: str = Depends(require_user)):
+    """Hace una llamada real al modelo y muestra que contesto o que fallo.
+
+    Existe porque cuando la categorizacion "no anda" el motivo esta del otro
+    lado de la red (clave mal puesta, modelo inexistente, sin credito) y sin
+    esto el usuario no tiene forma de verlo.
+    """
+    settings = get_settings()
+    if not settings.chat_enabled:
+        return _redirect(error="No hay OPENROUTER_API_KEY configurada.")
+
+    prueba = [{"descripcion": "COMPRA COTO DIGITAL", "importe": 48200.5, "es_gasto": True}]
+    try:
+        respuesta = await suggest_categories(prueba)
+    except OpenRouterError as exc:
+        return _redirect(error=f"Modelo '{settings.openrouter_model}': {exc}")
+
+    categoria = respuesta.get("COMPRA COTO DIGITAL")
+    if not categoria:
+        return _redirect(
+            error=f"El modelo '{settings.openrouter_model}' contesto, pero no devolvio "
+            f"una categoria para la prueba. Respuesta: {respuesta}"
+        )
+    return _redirect(
+        message=f"Conexion OK con '{settings.openrouter_model}'. "
+        f"Para 'COMPRA COTO DIGITAL' respondio: {categoria}."
+    )

@@ -99,3 +99,37 @@ def test_archivo_sin_importes_falla(tmp_path):
     path.write_text("a,b\nhola,mundo\n", encoding="utf-8")
     with pytest.raises(ValueError):
         parse_file(path)
+
+
+def test_unos_pocos_ingresos_no_dan_vuelta_la_planilla(tmp_path):
+    """Gastos en positivo con un ingreso suelto: no hay que invertir nada."""
+    path = tmp_path / "gastos.csv"
+    path.write_text(
+        "fecha,concepto,persona,importe\n"
+        "2026-03-08,Kiosco,Ana,3500\n"
+        "2026-03-09,Libreria,Ana,8000\n"
+        "2026-03-10,Devolucion,Ana,-5000\n",
+        encoding="utf-8",
+    )
+    parsed = parse_file(path)
+    assert parsed.mapping["invert_sign"] is False
+    importes = {r["description"]: r["amount"] for r in parsed.rows}
+    assert importes["Kiosco"] == 3500.0        # sigue siendo gasto
+    assert importes["Devolucion"] == -5000.0   # sigue siendo ingreso
+
+
+def test_extracto_con_mayoria_negativa_si_se_invierte(tmp_path):
+    path = tmp_path / "banco.csv"
+    path.write_text(
+        "fecha,concepto,persona,importe\n"
+        "2026-03-01,Super,Ana,-12000\n"
+        "2026-03-02,Nafta,Ana,-30000\n"
+        "2026-03-03,Farmacia,Ana,-5000\n"
+        "2026-03-10,Sueldo,Ana,900000\n",
+        encoding="utf-8",
+    )
+    parsed = parse_file(path)
+    assert parsed.mapping["invert_sign"] is True
+    importes = {r["description"]: r["amount"] for r in parsed.rows}
+    assert importes["Super"] == 12000.0     # gasto en positivo
+    assert importes["Sueldo"] == -900000.0  # ingreso en negativo

@@ -59,7 +59,13 @@ sentidos, así que hay dos excepciones:
 
 En **/categorias** la columna *Decidió* muestra de dónde salió cada categoría
 (una regla, el modelo, tu corrección o el archivo), y un aviso arriba dice qué
-estrategia está activa — útil cuando algo queda mal y no sabés por qué.
+estrategia está activa — útil cuando algo queda mal y no sabés por qué. El botón
+**Probar el modelo** hace una llamada real y muestra qué contestó o qué error dio,
+para descartar clave mal puesta, modelo inexistente o falta de crédito.
+
+Al modelo se le manda, por cada descripción distinta, si es gasto o ingreso y su
+importe típico: sin eso no puede distinguir un alquiler de un kiosco. Los pedidos
+van en tandas de 50, así que un fallo no se lleva puesto el lote entero.
 
 En Ajustes se puede cambiar a **solo reglas**, que no consulta al modelo.
 

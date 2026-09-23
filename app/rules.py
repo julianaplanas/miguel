@@ -150,36 +150,59 @@ def uncategorized_descriptions(db: Session, limit: int = 200) -> list[tuple[str,
     return [(desc, datos["veces"], round(datos["total"], 2)) for desc, datos in ordenadas[:limit]]
 
 
-async def ai_categorize_pending(db: Session, limit: int = 200) -> tuple[int, int]:
+# Cuantas descripciones por llamada. Trocear evita dos cosas: que la
+# respuesta se corte por el limite de tokens, y que un fallo se lleve
+# puesto el lote entero en vez de un trozo.
+AI_CHUNK = 50
+
+
+async def ai_categorize_pending(db: Session, limit: int = 300) -> tuple[int, int]:
     """Pregunta al modelo por las descripciones sin categorizar.
 
-    Se le mandan solo las descripciones DISTINTAS, y cada respuesta se
-    guarda como regla: la proxima vez que aparezca ese comercio ya no hace
-    falta preguntar. Devuelve (reglas creadas, movimientos actualizados).
+    Se le mandan solo las descripciones DISTINTAS, con su importe y si son
+    gasto o ingreso, y cada respuesta se guarda como regla: la proxima vez
+    que aparezca ese comercio ya no hace falta preguntar. Devuelve
+    (reglas creadas, movimientos actualizados).
 
-    Puede lanzar OpenRouterError: el que llama decide si eso aborta lo que
-    este haciendo o solo se avisa.
+    Si falla un trozo se sigue con los demas; solo se propaga el error
+    cuando no se pudo clasificar nada.
     """
-    from app.llm import suggest_categories  # import diferido: evita un ciclo
+    from app.llm import OpenRouterError, suggest_categories  # diferido: evita un ciclo
 
-    pendientes = [descripcion for descripcion, _veces, _total in uncategorized_descriptions(db, limit)]
+    pendientes = [
+        {
+            "descripcion": fila["descripcion"],
+            "importe": fila["promedio"],
+            "es_gasto": fila["es_gasto"],
+        }
+        for fila in description_summary(db, only_uncategorized=True, limit=limit)
+    ]
     if not pendientes:
         return 0, 0
 
-    sugerencias = await suggest_categories(pendientes)
-
     creadas = 0
     aplicados = 0
-    for descripcion, categoria in sugerencias.items():
-        categoria = (categoria or "").strip()
-        if not categoria or is_uncategorized(categoria):
-            continue
+    errores: list[str] = []
+    for inicio in range(0, len(pendientes), AI_CHUNK):
+        trozo = pendientes[inicio : inicio + AI_CHUNK]
         try:
-            save_rule(db, descripcion, categoria, source=SOURCE_AI)
-        except ValueError:
+            sugerencias = await suggest_categories(trozo)
+        except OpenRouterError as exc:
+            errores.append(str(exc))
             continue
-        creadas += 1
-        aplicados += apply_rule(db, descripcion, categoria)
+        for descripcion, categoria in sugerencias.items():
+            categoria = (categoria or "").strip()
+            if not categoria or is_uncategorized(categoria):
+                continue
+            try:
+                save_rule(db, descripcion, categoria, source=SOURCE_AI)
+            except ValueError:
+                continue
+            creadas += 1
+            aplicados += apply_rule(db, descripcion, categoria)
+
+    if errores and not creadas:
+        raise OpenRouterError(errores[0])
     return creadas, aplicados
 
 
@@ -213,16 +236,21 @@ def description_summary(
                 "descripcion": clave,
                 "veces": 0,
                 "total": 0.0,
+                "neto": 0.0,
                 "categoria": tx.category or UNCATEGORIZED,
                 "origen": tx.category_source or SOURCE_NONE,
             },
         )
+        importe = float(tx.amount or 0.0)
         entrada["veces"] += 1
-        entrada["total"] += abs(float(tx.amount or 0.0))
+        entrada["total"] += abs(importe)
+        entrada["neto"] += importe
 
     ordenadas = sorted(agrupadas.values(), key=lambda e: e["total"], reverse=True)
     for entrada in ordenadas:
         entrada["total"] = round(entrada["total"], 2)
+        entrada["promedio"] = round(entrada["total"] / max(entrada["veces"], 1), 2)
+        entrada["es_gasto"] = entrada["neto"] >= 0
         entrada["origen_label"] = ORIGIN_LABELS.get(entrada["origen"], entrada["origen"])
         entrada["pendiente"] = is_uncategorized(entrada["categoria"])
     return ordenadas[:limit]

@@ -306,8 +306,11 @@ def parse_file(
     if invert is None:
         numeric = amounts[valid].astype(float)
         negatives = int((numeric < 0).sum())
-        # Export bancario tipico: los gastos vienen en negativo -> invertimos.
-        invert = negatives >= max(1, int(0.25 * len(numeric)))
+        positives = int((numeric > 0).sum())
+        # Export bancario tipico: los gastos vienen en negativo y son la
+        # mayoria. Exigir mayoria (y no un porcentaje bajo) evita dar vuelta
+        # una planilla de gastos en positivo por tener un par de ingresos.
+        invert = negatives > positives
         mapping["invert_sign"] = bool(invert)
     invert = bool(invert)
 

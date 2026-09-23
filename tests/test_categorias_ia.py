@@ -6,6 +6,7 @@ alrededor: a quien se le pregunta, cuantas veces, y que pasa si falla.
 from __future__ import annotations
 
 import io
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,14 +34,20 @@ class FakeModel:
 
     def __init__(self, respuestas=None, falla=False):
         self.llamadas: list[list[str]] = []
+        self.contexto: list[dict] = []
         self.respuestas = respuestas or {}
         self.falla = falla
 
     async def __call__(self, descriptions, model=None):
-        self.llamadas.append(list(descriptions))
+        # La funcion real acepta texto suelto o dicts con importe y signo.
+        textos = [
+            d["descripcion"] if isinstance(d, dict) else d for d in descriptions
+        ]
+        self.llamadas.append(textos)
+        self.contexto.extend(d for d in descriptions if isinstance(d, dict))
         if self.falla:
             raise llm.OpenRouterError("503 de mentira")
-        return {d: self.respuestas.get(d, "Sin categoria") for d in descriptions}
+        return {t: self.respuestas.get(t, "Sin categoria") for t in textos}
 
     @property
     def preguntadas(self) -> list[str]:
@@ -160,3 +167,46 @@ def test_el_boton_de_sugerir_sigue_funcionando(auth, modelo):
     response = auth.post("/categorias/sugerir", follow_redirects=False)
     assert response.status_code == 303
     assert _categorias(auth)["QWERTY SRL 00012345"] == "Proveedores"
+
+
+def test_al_modelo_se_le_manda_el_importe_y_el_signo(auth, modelo):
+    """Sin el importe no puede distinguir un alquiler de un kiosco."""
+    _subir(auth, "extracto.csv", CSV)
+    contexto = {c["descripcion"]: c for c in modelo.contexto}
+    qwerty = contexto["QWERTY SRL 00012345"]
+    assert qwerty["es_gasto"] is True
+    assert qwerty["importe"] > 0
+
+
+def test_los_ingresos_se_marcan_como_tales(auth, modelo):
+    """Gastos en positivo y un ingreso en negativo, como queda tras importar."""
+    csv = (
+        "fecha,concepto,persona,importe,moneda\n"
+        "2026-03-08,KIOSCO DEL BARRIO,Ana,3500,ARS\n"
+        "2026-03-09,LIBRERIA CENTRAL,Ana,8000,ARS\n"
+        "2026-03-10,ACREDITACION XYZ,Ana,-500000,ARS\n"
+    )
+    _subir(auth, "ingreso.csv", csv)
+    contexto = {c["descripcion"]: c for c in modelo.contexto}
+    assert contexto["ACREDITACION XYZ"]["es_gasto"] is False
+    assert contexto["KIOSCO DEL BARRIO"]["es_gasto"] is True
+
+
+# --------------------------- diagnostico ---------------------------
+
+def test_probar_el_modelo_informa_exito(auth, modelo):
+    modelo.respuestas["COMPRA COTO DIGITAL"] = "Supermercado"
+    response = auth.post("/categorias/probar", follow_redirects=False)
+    assert response.status_code == 303
+    destino = unquote(response.headers["location"])
+    assert "error" not in destino
+    assert "Supermercado" in destino
+
+
+def test_probar_el_modelo_muestra_el_error_crudo(auth, modelo):
+    """Cuando falla, hay que ver el motivo real, no un mensaje generico."""
+    modelo.falla = True
+    response = auth.post("/categorias/probar", follow_redirects=False)
+    destino = unquote(response.headers["location"])
+    assert "error" in destino
+    assert "503 de mentira" in destino
