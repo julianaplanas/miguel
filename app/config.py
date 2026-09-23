@@ -25,7 +25,25 @@ class Settings:
         self.session_max_age: int = int(os.getenv("SESSION_MAX_AGE", str(60 * 60 * 24 * 7)))
         self.cookie_secure: bool = _bool(os.getenv("COOKIE_SECURE"), default=bool(os.getenv("RAILWAY_ENVIRONMENT")))
 
-        self.data_dir: Path = Path(os.getenv("DATA_DIR", "./data")).resolve()
+        # Donde viven los archivos subidos y (si no hay Postgres) la base.
+        # Railway expone la ruta del volumen en RAILWAY_VOLUME_MOUNT_PATH; si
+        # no se configuro DATA_DIR a mano se usa esa, porque el default
+        # './data' vive dentro del contenedor y se borra en cada deploy.
+        self.volume_mount: str = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+        self.on_railway: bool = bool(
+            os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID")
+        )
+        configurado = os.getenv("DATA_DIR", "").strip()
+        if configurado:
+            self.data_dir_source = "DATA_DIR"
+            elegido = configurado
+        elif self.volume_mount:
+            self.data_dir_source = "RAILWAY_VOLUME_MOUNT_PATH"
+            elegido = self.volume_mount
+        else:
+            self.data_dir_source = "por defecto"
+            elegido = "./data"
+        self.data_dir: Path = Path(elegido).resolve()
         self.upload_dir: Path = self.data_dir / "uploads"
 
         self.currency: str = os.getenv("CURRENCY", "ARS").upper()
@@ -55,6 +73,39 @@ class Settings:
     @property
     def chat_enabled(self) -> bool:
         return bool(self.openrouter_api_key)
+
+    @property
+    def data_is_persistent(self) -> bool:
+        """True si los datos sobreviven a un deploy.
+
+        Fuera de Railway no hay nada que avisar: el disco es el de siempre.
+        En Railway solo persiste lo que este dentro del volumen montado.
+        """
+        if not self.on_railway:
+            return True
+        if not self.volume_mount:
+            return False
+        try:
+            montaje = Path(self.volume_mount).resolve()
+        except OSError:
+            return False
+        return self.data_dir == montaje or montaje in self.data_dir.parents
+
+    @property
+    def storage_warning(self) -> str:
+        """Explicacion de por que los datos no van a sobrevivir, o cadena vacia."""
+        if self.data_is_persistent:
+            return ""
+        if not self.volume_mount:
+            return (
+                "Estas en Railway y no hay ningun volumen montado: los archivos subidos "
+                "y la base se borran en cada deploy. Crea un volumen y volve a desplegar."
+            )
+        return (
+            f"Los datos se guardan en {self.data_dir}, que esta fuera del volumen "
+            f"({self.volume_mount}): se borran en cada deploy. Quita DATA_DIR para que "
+            f"se use el volumen, o apuntala a {self.volume_mount}."
+        )
 
 
 @lru_cache

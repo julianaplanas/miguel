@@ -203,7 +203,7 @@ Copia `.env.example` a `.env` para desarrollo local. En Railway se ponen en
 | `SECRET_KEY` | sí | Firma la cookie de sesión. Usa algo largo y aleatorio. |
 | `OPENROUTER_API_KEY` | para el chat | Clave de [OpenRouter](https://openrouter.ai/keys). Sin ella el dashboard funciona y el chat aparece desactivado. |
 | `OPENROUTER_MODEL` | no | Modelo por defecto (`anthropic/claude-sonnet-4.5`). |
-| `DATA_DIR` | recomendada | Carpeta de datos (SQLite + archivos subidos). En Railway: la ruta del volumen, p. ej. `/data`. |
+| `DATA_DIR` | no | Carpeta de datos (SQLite + archivos subidos). En Railway se detecta sola desde el volumen; solo defínela si quieres otra ruta. |
 | `DATABASE_URL` | no | Si la defines (p. ej. Postgres de Railway) se usa en vez de SQLite. |
 | `CURRENCY` | no | Moneda base **inicial** (`ARS` por defecto); después manda lo que elijas en /ajustes. |
 | `LOCALE` | no | Formato de números y fechas (`es-AR` por defecto). |
@@ -217,9 +217,10 @@ Copia `.env.example` a `.env` para desarrollo local. En Railway se ponen en
 2. En **Variables**, añade al menos `APP_USERNAME`, `APP_PASSWORD`, `SECRET_KEY`
    y `OPENROUTER_API_KEY`.
 3. **Persistencia** (importante: el disco del contenedor se borra en cada deploy):
-   - *Opción A (simple)*: crea un **Volume** montado en `/data` y pon `DATA_DIR=/data`.
-     Los archivos subidos y la base SQLite viven ahí. **Sin volumen se pierde todo
-     en cada deploy**, así que no es opcional si quieres conservar los archivos.
+   - *Opción A (simple)*: crea un **Volume**. Con eso alcanza: Railway expone su ruta
+     en `RAILWAY_VOLUME_MOUNT_PATH` y la app la usa sola. **No hace falta `DATA_DIR`**,
+     y si lo defines apuntando fuera del volumen los datos igual se pierden.
+     **Sin volumen se pierde todo en cada deploy.**
    - *Opción B*: añade el plugin **Postgres**; Railway inyecta `DATABASE_URL` y la app
      lo usa automáticamente. Aun así conviene un volumen para los archivos originales
      (hacen falta para reimportar tras cambiar el mapeo).
@@ -265,6 +266,19 @@ app/
   static/         CSS, JS de gráficos y Chart.js (incluido en el repo)
 tests/            pruebas de ingesta, PDF, monedas, categorías y de la app completa
 ```
+
+## Dónde se guardan los datos
+
+La carpeta de datos se resuelve en este orden:
+
+1. `DATA_DIR`, si la definiste.
+2. `RAILWAY_VOLUME_MOUNT_PATH` — la ruta del volumen, que Railway expone sola.
+3. `./data`, que **vive dentro del contenedor y se borra en cada deploy**.
+
+En **/ajustes → Almacenamiento** se ve cuál se está usando, de dónde salió, si hay
+volumen montado, cuántos archivos hay y si se puede escribir. Si los datos quedaron
+fuera del volumen, la app lo dice ahí y también en la pantalla de Archivos, en vez
+de dejarte descubrirlo cuando desaparecen.
 
 ## Notas
 

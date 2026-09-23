@@ -30,6 +30,14 @@ async def lifespan(_: FastAPI):
         logger.warning("SECRET_KEY no configurada: usa una clave propia en produccion.")
     if not settings.chat_enabled:
         logger.warning("OPENROUTER_API_KEY no configurada: el chat estara deshabilitado.")
+    logger.info(
+        "Datos en %s (origen: %s, persistente: %s)",
+        settings.data_dir,
+        settings.data_dir_source,
+        "si" if settings.data_is_persistent else "NO",
+    )
+    if settings.storage_warning:
+        logger.warning(settings.storage_warning)
     yield
 
 

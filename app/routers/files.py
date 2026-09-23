@@ -25,6 +25,20 @@ router = APIRouter(prefix="/archivos")
 ALLOWED_SUFFIXES = {".csv", ".tsv", ".txt", ".xlsx", ".xlsm", ".xls", ".pdf"}
 
 
+def _stored_file(record: UploadedFile) -> Path | None:
+    """Ruta real del archivo guardado, o None si ya no esta.
+
+    Si la carpeta de datos cambio (por ejemplo al montar el volumen), la
+    ruta absoluta guardada ya no sirve pero el archivo puede seguir ahi
+    con el mismo nombre.
+    """
+    path = Path(record.stored_path)
+    if path.exists():
+        return path
+    alternativa = get_settings().upload_dir / path.name
+    return alternativa if alternativa.exists() else None
+
+
 def _safe_suffix(filename: str) -> str:
     suffix = Path(filename or "").suffix.lower()
     if suffix not in ALLOWED_SUFFIXES:
@@ -117,6 +131,7 @@ def files_page(
         {
             "files": files,
             "fields": FIELDS,
+            "storage_warning": get_settings().storage_warning,
             "currencies": cur.known_codes(),
             "currency_label": cur.label,
             "base_currency": base_currency(db),
@@ -240,10 +255,10 @@ async def remap(
     mapping["invert_sign"] = invert_sign.lower() in {"1", "true", "on", "si"}
     mapping["default_currency"] = cur.normalize_code(default_currency, base_currency(db))
 
-    path = Path(record.stored_path)
-    if not path.exists():
+    path = _stored_file(record)
+    if path is None:
         return RedirectResponse(
-            f"/archivos?error=El archivo original ya no esta disponible; vuelve a subirlo.",
+            "/archivos?error=El archivo original ya no esta disponible; vuelve a subirlo.",
             status_code=status.HTTP_303_SEE_OTHER,
         )
     try:
@@ -277,7 +292,9 @@ def delete_file(
     record = db.get(UploadedFile, file_id)
     if not record:
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
-    Path(record.stored_path).unlink(missing_ok=True)
+    guardado = _stored_file(record)
+    if guardado is not None:
+        guardado.unlink(missing_ok=True)
     db.execute(delete(Transaction).where(Transaction.file_id == record.id))
     db.delete(record)
     db.commit()
@@ -287,6 +304,7 @@ def delete_file(
 @router.get("/{file_id}/descargar")
 def download(file_id: int, db: Session = Depends(get_db), _: str = Depends(require_user)):
     record = db.get(UploadedFile, file_id)
-    if not record or not Path(record.stored_path).exists():
+    guardado = _stored_file(record) if record else None
+    if not record or guardado is None:
         raise HTTPException(status_code=404, detail="Archivo no encontrado")
-    return FileResponse(record.stored_path, filename=record.filename)
+    return FileResponse(guardado, filename=record.filename)

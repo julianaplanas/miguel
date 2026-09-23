@@ -39,6 +39,55 @@
 
   <div class="card">
     <div class="card-head">
+      <h2>Almacenamiento</h2>
+      <span class="hint">Donde viven los archivos subidos y la base</span>
+    </div>
+    {% if storage.warning %}
+    <div class="flash err" style="margin-bottom:12px">
+      <strong>Los datos no sobreviven a un deploy.</strong> {{ storage.warning }}
+    </div>
+    {% else %}
+    <div class="flash ok" style="margin-bottom:12px">
+      Los datos se conservan entre deploys.
+    </div>
+    {% endif %}
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr>
+            <td>Carpeta de datos</td>
+            <td><code>{{ storage.data_dir }}</code>
+              <span class="file-meta">(elegida por {{ storage.source }})</span></td>
+          </tr>
+          <tr>
+            <td>Volumen montado</td>
+            <td>
+              {% if storage.volume %}<code>{{ storage.volume }}</code>
+              {% elif storage.on_railway %}<span style="color:var(--critical)">ninguno</span>
+              {% else %}<span class="file-meta">no aplica fuera de Railway</span>{% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td>Base de datos</td>
+            <td><code>{{ storage.database }}</code></td>
+          </tr>
+          <tr>
+            <td>Archivos guardados</td>
+            <td>{{ storage.files }} ({{ storage.size_mb }} MB)
+              {% if storage.free_mb is not none %}
+              <span class="file-meta">· {{ storage.free_mb }} MB libres</span>{% endif %}</td>
+          </tr>
+          <tr>
+            <td>Se puede escribir</td>
+            <td>{% if storage.writable %}si{% else %}<strong style="color:var(--critical)">no</strong>{% endif %}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
       <h2>Como se categoriza</h2>
       <span class="hint">De donde sale la categoria de cada movimiento</span>
     </div>

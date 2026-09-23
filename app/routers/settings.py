@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
+import shutil
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -128,6 +131,7 @@ def settings_page(
             "mode_current": MODE_CURRENT,
             "mode_historical": MODE_HISTORICAL,
             "period": _period(db),
+            "storage": _storage_info(),
             "categorization": categorization_mode(db),
             "cat_ai": CAT_AI,
             "cat_rules": CAT_RULES,
@@ -342,3 +346,54 @@ def save_categorization(
             "sola vez y la respuesta queda guardada como regla."
         )
     return _redirect(message="Las categorias salen solo de las reglas, sin consultar al modelo.")
+
+
+def _storage_info() -> dict:
+    """Donde se guardan los datos y si eso sobrevive a un deploy."""
+    settings = get_settings()
+    data_dir = settings.data_dir
+    uploads = settings.upload_dir
+
+    archivos = 0
+    tamano = 0
+    if uploads.exists():
+        for item in uploads.iterdir():
+            if item.is_file():
+                archivos += 1
+                tamano += item.stat().st_size
+
+    escribible = False
+    try:
+        uploads.mkdir(parents=True, exist_ok=True)
+        prueba = uploads / ".escritura"
+        prueba.write_text("ok")
+        prueba.unlink()
+        escribible = True
+    except OSError:
+        escribible = False
+
+    libre = None
+    try:
+        libre = shutil.disk_usage(data_dir).free
+    except OSError:
+        pass
+
+    base_datos = (
+        "Postgres (DATABASE_URL)"
+        if os.getenv("DATABASE_URL", "").strip()
+        else str(Path(settings.database_url.replace("sqlite:///", "")))
+    )
+
+    return {
+        "data_dir": str(data_dir),
+        "source": settings.data_dir_source,
+        "volume": settings.volume_mount or "",
+        "on_railway": settings.on_railway,
+        "persistent": settings.data_is_persistent,
+        "warning": settings.storage_warning,
+        "files": archivos,
+        "size_mb": round(tamano / (1024 * 1024), 2),
+        "writable": escribible,
+        "free_mb": None if libre is None else round(libre / (1024 * 1024), 1),
+        "database": base_datos,
+    }

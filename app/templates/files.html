@@ -5,6 +5,7 @@
 <h1>Archivos</h1>
 <p class="subtitle">Sube CSV, TSV, Excel o PDF (resumenes de banco y tarjeta). Solo los archivos <strong>activos</strong> cuentan en el dashboard y en el chat.</p>
 
+{% if storage_warning %}<div class="flash err"><strong>Los archivos no se van a conservar.</strong> {{ storage_warning }}</div>{% endif %}
 {% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
 {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
 
