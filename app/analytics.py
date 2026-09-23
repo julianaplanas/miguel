@@ -15,8 +15,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import get_settings
 from app.models import ExchangeRate, Transaction, UploadedFile
+from app.preferences import base_currency
 
 
 @dataclass
@@ -49,13 +49,9 @@ def parse_date(value: str | None) -> dt.date | None:
         return None
 
 
-def base_currency() -> str:
-    return get_settings().currency.upper()
-
-
 def get_rates(db: Session) -> dict[str, float]:
     """Tipos de cambio hacia la base, incluida la base (=1)."""
-    base = base_currency()
+    base = base_currency(db)
     rates: dict[str, float] = {base: 1.0}
     for row in db.execute(select(ExchangeRate)).scalars().all():
         code = (row.code or "").upper()
@@ -71,7 +67,7 @@ def get_rates(db: Session) -> dict[str, float]:
 
 def fetch_rows(db: Session, filters: Filters) -> list[dict[str, Any]]:
     """Devuelve las transacciones de los archivos ACTIVOS que pasan los filtros."""
-    base = base_currency()
+    base = base_currency(db)
     stmt = (
         select(
             Transaction.id,
@@ -137,7 +133,7 @@ def _sorted_totals(totals: dict[str, float], limit: int | None = None) -> list[d
 
 
 def build_summary(db: Session, filters: Filters, top_n: int = 8) -> dict[str, Any]:
-    base = base_currency()
+    base = base_currency(db)
     rows = fetch_rows(db, filters)
     rates = get_rates(db)
 
@@ -288,7 +284,7 @@ def build_summary(db: Session, filters: Filters, top_n: int = 8) -> dict[str, An
 
 def available_options(db: Session) -> dict[str, Any]:
     """Personas, categorias, monedas y rango de fechas de los archivos activos."""
-    base = base_currency()
+    base = base_currency(db)
     stmt = (
         select(Transaction.person, Transaction.category, Transaction.date, Transaction.currency)
         .join(UploadedFile, Transaction.file_id == UploadedFile.id)

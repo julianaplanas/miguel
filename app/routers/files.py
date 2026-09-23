@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app import currency as cur
 from app.config import get_settings
 from app.deps import require_user, templates
+from app.preferences import base_currency
 from app.ingest import FIELDS, parse_file
 from app.db import get_db
 from app.models import Transaction, UploadedFile
@@ -33,6 +34,7 @@ def _safe_suffix(filename: str) -> str:
 
 
 def _import_rows(db: Session, record: UploadedFile, parsed) -> None:
+    base = base_currency(db)
     db.execute(delete(Transaction).where(Transaction.file_id == record.id))
     db.add_all(
         [
@@ -41,7 +43,7 @@ def _import_rows(db: Session, record: UploadedFile, parsed) -> None:
                 date=row["date"],
                 description=row["description"],
                 amount=row["amount"],
-                currency=(row["currency"] or get_settings().currency).upper(),
+                currency=(row["currency"] or base).upper(),
                 category=row["category"] or "Sin categoria",
                 person=row["person"] or "Sin asignar",
                 account=row["account"],
@@ -82,7 +84,7 @@ def files_page(
             "fields": FIELDS,
             "currencies": cur.known_codes(),
             "currency_label": cur.label,
-            "base_currency": get_settings().currency,
+            "base_currency": base_currency(db),
             "message": message,
             "error": error,
             "active_page": "files",
@@ -127,7 +129,7 @@ async def upload(
         parsed = parse_file(
             stored_path,
             default_person=default_person.strip(),
-            default_currency=default_currency.strip() or settings.currency,
+            default_currency=default_currency.strip() or base_currency(db),
             raw=content,
         )
         _import_rows(db, record, parsed)
@@ -199,7 +201,7 @@ def remap(
         if value
     }
     mapping["invert_sign"] = invert_sign.lower() in {"1", "true", "on", "si"}
-    mapping["default_currency"] = cur.normalize_code(default_currency, get_settings().currency)
+    mapping["default_currency"] = cur.normalize_code(default_currency, base_currency(db))
 
     path = Path(record.stored_path)
     if not path.exists():

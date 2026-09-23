@@ -3,81 +3,140 @@
 
 {% block content %}
 <h1>Ajustes</h1>
-<p class="subtitle">Moneda base: <strong>{{ base_label }}</strong>. Se cambia con la variable de entorno <code>CURRENCY</code>.</p>
+<p class="subtitle">Moneda base y tipos de cambio.</p>
 
 {% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
 {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
 
 {% if missing %}
 <div class="flash err">
-  Hay movimientos en {{ missing | join(', ') }} sin tipo de cambio cargado. Mientras falte,
-  el dashboard no puede juntar monedas: muestra cada una por separado.
+  Hay movimientos en {{ missing | join(', ') }} sin tipo de cambio. Mientras falte,
+  el dashboard no junta monedas: muestra cada una por separado.
 </div>
 {% endif %}
 
-<div class="card">
-  <div class="card-head">
-    <h2>Tipos de cambio</h2>
-    <span class="hint">Cuantos {{ base }} vale una unidad de cada moneda</span>
+<div class="stack">
+  <div class="card">
+    <div class="card-head">
+      <h2>Moneda base</h2>
+      <span class="hint">En la que se muestran los totales y a la que se convierte todo</span>
+    </div>
+    <form method="post" action="/ajustes/moneda-base" class="file-actions">
+      <div class="field">
+        <label for="base-code">Moneda</label>
+        <select id="base-code" name="code">
+          {% for c in base_options %}
+          <option value="{{ c }}" {{ 'selected' if c == base }}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn-primary" style="align-self:flex-end">Guardar</button>
+      <span class="file-meta" style="align-self:flex-end">
+        Ahora: <strong>{{ base_label }}</strong>. Al cambiarla hay que volver a cargar los tipos de cambio.
+      </span>
+    </form>
   </div>
-  <p class="subtitle">
-    No se consulta ninguna cotizacion automatica: el tipo que te sirve (oficial, MEP, blue) es
-    decision tuya, asi que lo pones a mano. Deja el campo vacio y pulsa Guardar para borrarlo.
-  </p>
 
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Moneda</th>
-          <th class="num">1 unidad =</th>
-          <th>Actualizado</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for row in rows %}
-        <tr>
-          <td>
-            {{ row.label }}
-            {% if row.in_use %}<span class="badge on"><span class="dot"></span>en uso</span>{% endif %}
-          </td>
-          <td colspan="3">
-            <form method="post" action="/ajustes/tipo-de-cambio"
-                  style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-              <input type="hidden" name="code" value="{{ row.code }}">
-              <input type="text" inputmode="decimal" name="rate" style="min-width:120px"
-                     value="{{ '' if row.rate is none else row.rate }}"
-                     placeholder="ej. 1450"
-                     aria-label="Tipo de cambio de {{ row.code }} a {{ base }}">
-              <span style="color:var(--text-muted)">{{ base }}</span>
-              <button type="submit" class="btn-sm">Guardar</button>
-              <span class="file-meta">
-                {% if row.stale_base %}
-                  Guardado contra otra moneda base: vuelve a cargarlo.
-                {% elif row.updated_at %}
-                  {{ row.updated_at.strftime('%d/%m/%Y %H:%M') }}
-                {% else %}
-                  Sin cargar
-                {% endif %}
-              </span>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="card">
+    <div class="card-head">
+      <h2>Tipos de cambio</h2>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+        <span class="hint">Cuantos {{ base }} vale una unidad de cada moneda</span>
+        {% if can_refresh_all %}
+        <form method="post" action="/ajustes/cotizaciones">
+          <button type="submit" class="btn-sm">Actualizar cotizaciones</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    <p class="subtitle">
+      Puedes traer la cotizacion de una API o escribirla a mano. Para el dolar, el origen
+      decide mucho: entre el oficial y el blue hay bastante diferencia, asi que lo eliges tu.
+      Un tipo puesto <strong>a mano</strong> no se pisa al actualizar. Borra el campo y pulsa
+      Guardar para eliminarlo.
+    </p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Moneda</th>
+            <th>Origen</th>
+            <th>1 unidad =</th>
+            <th>Actualizado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>
+              {{ row.label }}
+              {% if row.in_use %}<span class="badge on"><span class="dot"></span>en uso</span>{% endif %}
+            </td>
+            <td colspan="3">
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+                <form method="post" action="/ajustes/cotizacion"
+                      style="display:flex; gap:6px; align-items:center">
+                  <input type="hidden" name="code" value="{{ row.code }}">
+                  <select name="source" aria-label="Origen de la cotizacion de {{ row.code }}">
+                    {% for value, etiqueta in row.sources %}
+                    <option value="{{ value }}" {{ 'selected' if value == row.source }}>{{ etiqueta }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="submit" class="btn-sm">Traer cotizacion</button>
+                </form>
+
+                <form method="post" action="/ajustes/tipo-de-cambio"
+                      style="display:flex; gap:6px; align-items:center">
+                  <input type="hidden" name="code" value="{{ row.code }}">
+                  <input type="hidden" name="source" value="manual">
+                  <input type="text" inputmode="decimal" name="rate" style="min-width:120px"
+                         value="{{ '' if row.rate is none else row.rate }}"
+                         placeholder="a mano"
+                         aria-label="Tipo de cambio de {{ row.code }} a {{ base }}">
+                  <span style="color:var(--text-muted)">{{ base }}</span>
+                  <button type="submit" class="btn-sm">Guardar</button>
+                </form>
+
+                <span class="file-meta">
+                  {% if row.stale_base %}
+                    Guardado contra otra moneda base: vuelve a cargarlo.
+                  {% elif row.rate is none %}
+                    Sin cargar
+                  {% else %}
+                    {{ row.source_label }} ·
+                    {% if row.hours_old is not none and row.hours_old < 1 %}
+                      recien actualizado
+                    {% elif row.hours_old is not none and row.hours_old < 48 %}
+                      hace {{ row.hours_old }} h
+                    {% else %}
+                      {{ row.updated_at.strftime('%d/%m/%Y %H:%M') }}
+                    {% endif %}
+                  {% endif %}
+                </span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
-</div>
 
-<div class="card" style="margin-top:16px">
-  <div class="card-head"><h2>Como se usan</h2></div>
-  <ul style="margin:0; padding-left:20px; color:var(--text-secondary)">
-    <li>En el dashboard, el selector <strong>Moneda</strong> deja ver una sola moneda tal cual viene,
-      sin convertir nada.</li>
-    <li>Con <strong>Todo en {{ base }}</strong>, cada importe se multiplica por su tipo de cambio.
-      Requiere tener cargadas todas las monedas que aparezcan en los datos.</li>
-    <li>La tabla de movimientos siempre muestra el importe y la moneda originales.</li>
-  </ul>
+  <div class="card">
+    <div class="card-head"><h2>Como se usan</h2></div>
+    <ul style="margin:0; padding-left:20px; color:var(--text-secondary)">
+      <li>En el dashboard, el selector <strong>Moneda</strong> deja ver una sola moneda tal cual
+        viene, sin convertir nada.</li>
+      <li>Con <strong>Todo en {{ base }}</strong>, cada importe se multiplica por su tipo de cambio.
+        Hace falta tener cargadas todas las monedas que aparezcan en los datos.</li>
+      <li>La tabla de movimientos y el CSV exportado llevan siempre el importe y la moneda
+        originales.</li>
+      <li>Las cotizaciones salen de <a href="https://dolarapi.com" target="_blank" rel="noopener">dolarapi.com</a>
+        (dolar, euro, real, peso chileno y uruguayo contra el peso argentino) y de
+        <a href="https://open.er-api.com" target="_blank" rel="noopener">open.er-api.com</a> para el resto.
+        Ninguna necesita clave.</li>
+    </ul>
+  </div>
 </div>
 {% endblock %}

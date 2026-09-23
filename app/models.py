@@ -92,4 +92,20 @@ class ExchangeRate(Base):
     code: Mapped[str] = mapped_column(String(8), primary_key=True)
     base: Mapped[str] = mapped_column(String(8), default="")
     rate: Mapped[float] = mapped_column(Float, default=1.0)
+    # "manual", o el proveedor usado: "dolarapi:blue", "erapi"...
+    source: Mapped[str] = mapped_column(String(64), default="manual")
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class AppSetting(Base):
+    """Preferencias que el usuario cambia desde la UI (p. ej. la moneda base).
+
+    Las variables de entorno solo dan el valor inicial: lo que se guarda aqui
+    manda, para no tener que redesplegar por cambiar la moneda.
+    """
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

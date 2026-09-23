@@ -1,5 +1,7 @@
-"""Ajustes: tipos de cambio hacia la moneda base."""
+"""Ajustes: moneda base y tipos de cambio (a mano o desde una API)."""
 from __future__ import annotations
+
+import datetime as dt
 
 from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -7,13 +9,37 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app import currency as cur
-from app.analytics import available_options, base_currency
-from app.config import get_settings
+from app import rates as rate_api
+from app.analytics import available_options
 from app.db import get_db
 from app.deps import require_user, templates
 from app.models import ExchangeRate
+from app.preferences import base_currency, set_base_currency
 
 router = APIRouter(prefix="/ajustes")
+
+
+def _redirect(message: str = "", error: str = "") -> RedirectResponse:
+    from urllib.parse import quote
+
+    if error:
+        destino = f"/ajustes?error={quote(error)}"
+    elif message:
+        destino = f"/ajustes?message={quote(message)}"
+    else:
+        destino = "/ajustes"
+    return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
+
+
+def _save(db: Session, code: str, base: str, rate: float, source: str) -> None:
+    existente = db.get(ExchangeRate, code)
+    if existente:
+        existente.rate = rate
+        existente.base = base
+        existente.source = source
+    else:
+        db.add(ExchangeRate(code=code, base=base, rate=rate, source=source))
+    db.commit()
 
 
 @router.get("", response_class=HTMLResponse)
@@ -24,40 +50,70 @@ def settings_page(
     message: str | None = None,
     error: str | None = None,
 ):
-    base = base_currency()
+    base = base_currency(db)
     opciones = available_options(db)
     guardados = {
-        (r.code or "").upper(): r
-        for r in db.execute(select(ExchangeRate)).scalars().all()
+        (r.code or "").upper(): r for r in db.execute(select(ExchangeRate)).scalars().all()
     }
-    # Primero las monedas que aparecen en los datos, luego el resto conocidas.
     en_uso = [c for c in opciones["currencies"] if c != base]
     otras = [c for c in cur.known_codes() if c != base and c not in en_uso]
+
+    ahora = dt.datetime.now(dt.timezone.utc)
 
     def fila(code: str, usada: bool) -> dict:
         guardado = guardados.get(code)
         obsoleto = bool(guardado and guardado.base and guardado.base.upper() != base)
+        actualizado = None if guardado is None else guardado.updated_at
+        antiguedad = None
+        if actualizado is not None:
+            referencia = actualizado
+            if referencia.tzinfo is None:
+                referencia = referencia.replace(tzinfo=dt.timezone.utc)
+            antiguedad = int((ahora - referencia).total_seconds() // 3600)
         return {
             "code": code,
             "label": cur.label(code),
             "rate": None if (guardado is None or obsoleto) else guardado.rate,
-            "updated_at": None if guardado is None else guardado.updated_at,
+            "updated_at": actualizado,
+            "hours_old": antiguedad,
+            "source": (guardado.source if guardado else "") or rate_api.MANUAL,
+            "source_label": rate_api.source_label(guardado.source if guardado else ""),
+            "sources": rate_api.available_sources(code, base),
+            "auto": bool(guardado and guardado.source and guardado.source != rate_api.MANUAL),
             "stale_base": obsoleto,
             "in_use": usada,
         }
 
+    filas = [fila(c, True) for c in en_uso] + [fila(c, False) for c in otras]
     return templates.TemplateResponse(
         request,
         "settings.html",
         {
             "base": base,
             "base_label": cur.label(base),
-            "rows": [fila(c, True) for c in en_uso] + [fila(c, False) for c in otras],
+            "base_options": cur.known_codes(),
+            "rows": filas,
             "missing": opciones["missing_rates"],
+            "can_refresh_all": any(f["auto"] or f["in_use"] for f in filas),
             "message": message,
             "error": error,
             "active_page": "settings",
         },
+    )
+
+
+@router.post("/moneda-base")
+def save_base(
+    db: Session = Depends(get_db),
+    _: str = Depends(require_user),
+    code: str = Form(...),
+):
+    try:
+        nueva = set_base_currency(db, code)
+    except ValueError:
+        return _redirect(error=f"No reconozco la moneda '{code}'")
+    return _redirect(
+        message=f"Moneda base: {nueva}. Los tipos de cambio guardados contra otra base hay que volver a cargarlos."
     )
 
 
@@ -67,43 +123,85 @@ def save_rate(
     _: str = Depends(require_user),
     code: str = Form(...),
     rate: str = Form(""),
+    source: str = Form(rate_api.MANUAL),
 ):
-    base = base_currency()
+    base = base_currency(db)
     code = cur.normalize_code(code, "").upper()
     if not code or code == base:
-        return RedirectResponse(
-            "/ajustes?error=Moneda no valida", status_code=status.HTTP_303_SEE_OTHER
-        )
+        return _redirect(error="Moneda no valida")
 
-    texto = rate.replace(".", "").replace(",", ".").strip() if "," in rate else rate.strip()
+    texto = rate.strip()
     if not texto:
         db.execute(delete(ExchangeRate).where(ExchangeRate.code == code))
         db.commit()
-        return RedirectResponse(
-            f"/ajustes?message=Se borro el tipo de cambio de {code}",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
+        return _redirect(message=f"Se borro el tipo de cambio de {code}")
+
+    # Aceptamos tanto 1234.56 como 1.234,56
+    if "," in texto:
+        texto = texto.replace(".", "").replace(",", ".")
     try:
         valor = float(texto)
     except ValueError:
-        return RedirectResponse(
-            f"/ajustes?error='{rate}' no es un numero",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
+        return _redirect(error=f"'{rate}' no es un numero")
     if valor <= 0:
-        return RedirectResponse(
-            "/ajustes?error=El tipo de cambio tiene que ser mayor que cero",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
+        return _redirect(error="El tipo de cambio tiene que ser mayor que cero")
 
-    existente = db.get(ExchangeRate, code)
-    if existente:
-        existente.rate = valor
-        existente.base = base
-    else:
-        db.add(ExchangeRate(code=code, base=base, rate=valor))
-    db.commit()
-    return RedirectResponse(
-        f"/ajustes?message=1 {code} = {valor:g} {base}",
-        status_code=status.HTTP_303_SEE_OTHER,
-    )
+    _save(db, code, base, valor, source or rate_api.MANUAL)
+    return _redirect(message=f"1 {code} = {valor:g} {base}")
+
+
+@router.post("/cotizacion")
+def refresh_rate(
+    db: Session = Depends(get_db),
+    _: str = Depends(require_user),
+    code: str = Form(...),
+    source: str = Form(""),
+):
+    base = base_currency(db)
+    code = cur.normalize_code(code, "").upper()
+    if not code or code == base:
+        return _redirect(error="Moneda no valida")
+    try:
+        obtenida = rate_api.fetch_rate(code, base, source)
+    except rate_api.RateError as exc:
+        # El valor anterior se queda como estaba.
+        return _redirect(error=f"No se pudo traer la cotizacion de {code}: {exc}")
+    _save(db, code, base, obtenida.rate, obtenida.source)
+    detalle = f" ({obtenida.detail})" if obtenida.detail else ""
+    return _redirect(message=f"1 {code} = {obtenida.rate:g} {base}{detalle}")
+
+
+@router.post("/cotizaciones")
+def refresh_all(db: Session = Depends(get_db), _: str = Depends(require_user)):
+    """Actualiza las monedas que aparecen en los datos y no son manuales."""
+    base = base_currency(db)
+    presentes = [c for c in available_options(db)["currencies"] if c != base]
+    guardados = {
+        (r.code or "").upper(): r for r in db.execute(select(ExchangeRate)).scalars().all()
+    }
+
+    actualizadas: list[str] = []
+    fallos: list[str] = []
+    for code in presentes:
+        guardado = guardados.get(code)
+        # Un origen vacio (o nulo, en filas de antes de que existiera la
+        # columna) significa cargado a mano: no lo pisamos.
+        origen = (guardado.source if guardado else "") or rate_api.MANUAL
+        if origen == rate_api.MANUAL and guardado is not None:
+            continue
+        try:
+            obtenida = rate_api.fetch_rate(code, base, origen)
+        except rate_api.RateError as exc:
+            fallos.append(f"{code}: {exc}")
+            continue
+        _save(db, code, base, obtenida.rate, obtenida.source)
+        actualizadas.append(f"1 {code} = {obtenida.rate:g} {base}")
+
+    if fallos and not actualizadas:
+        return _redirect(error=" · ".join(fallos))
+    if not actualizadas:
+        return _redirect(message="No habia ninguna moneda con cotizacion automatica que actualizar.")
+    mensaje = "Actualizado: " + " · ".join(actualizadas)
+    if fallos:
+        mensaje += f". Fallaron: {' · '.join(fallos)}"
+    return _redirect(message=mensaje)

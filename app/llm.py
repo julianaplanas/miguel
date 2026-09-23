@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.analytics import Filters, build_summary, fetch_rows
 from app.config import get_settings
+from app.preferences import base_currency
 
 SYSTEM_PROMPT = """Eres un analista financiero personal que ayuda a entender gastos.
 
@@ -63,7 +64,7 @@ def build_data_context(db: Session, max_sample: int = 40) -> dict[str, Any]:
         for r in rows[:max_sample]
     ]
     return {
-        "moneda_base": get_settings().currency,
+        "moneda_base": base_currency(db),
         "monedas": {
             "presentes": summary["currencies"],
             "convertido_a": summary["currency"] if summary["converted"] else None,
@@ -89,7 +90,7 @@ def build_messages(
 ) -> list[dict[str, str]]:
     settings = get_settings()
     context = build_data_context(db)
-    system = SYSTEM_PROMPT.replace("{currency}", settings.currency)
+    system = SYSTEM_PROMPT.replace("{currency}", base_currency(db))
     system += "\n\nRESUMEN DE DATOS ACTIVOS (JSON):\n" + json.dumps(
         context, ensure_ascii=False, default=str
     )

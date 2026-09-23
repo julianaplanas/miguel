@@ -16,7 +16,7 @@ Pensada para desplegarse en **Railway** con un par de variables de entorno.
 | **/archivos** | Subir CSV/TSV/Excel, activar o desactivar cada archivo, corregir el mapeo de columnas, descargar o borrar. |
 | **/** (dashboard) | KPIs, evolución mensual, gasto por categoría, por persona, cruce persona × categoría, gasto por día de la semana, mayores gastos, tabla de movimientos, exportación a CSV. |
 | **/chat** | Preguntas en lenguaje natural sobre los datos activos. El modelo puede devolver gráficos que se dibujan en la conversación. |
-| **/ajustes** | Tipos de cambio hacia la moneda base, para poder juntar pesos y dólares en un mismo total. |
+| **/ajustes** | Moneda base y tipos de cambio (traídos de una API o escritos a mano). |
 
 Solo los archivos marcados como **activos** entran en el dashboard y en el chat,
 así que puedes tener varios exports subidos y combinarlos o aislarlos sin borrar nada.
@@ -38,7 +38,8 @@ entre paréntesis (`(89,90)` = negativo) y con símbolo de moneda.
 
 ## Monedas (pesos y dólares)
 
-La moneda base se fija con `CURRENCY` (por defecto `ARS`). Cada movimiento guarda
+La moneda base se elige en **/ajustes** (`CURRENCY` solo da el valor inicial,
+así que no hace falta redesplegar para cambiarla). Cada movimiento guarda
 **su propia** moneda, que se detecta así, por orden:
 
 1. Una columna de moneda (`moneda`, `divisa`, `currency`) — acepta `USD`, `dólares`, `pesos`…
@@ -55,10 +56,28 @@ selector *Moneda* ofrece:
   Si falta el de alguna moneda, el dashboard **no inventa el total**: avisa, muestra
   solo la moneda mayoritaria y te enlaza a Ajustes.
 
-Los tipos de cambio se cargan a mano en **/ajustes** y no se consulta ninguna API:
-en Argentina el tipo que te sirve (oficial, MEP, blue) es una decisión tuya. La
-tabla de movimientos y el CSV exportado siempre llevan el importe y la moneda
+La tabla de movimientos y el CSV exportado siempre llevan el importe y la moneda
 originales, sin convertir.
+
+### Cotizaciones
+
+En **/ajustes**, cada moneda se puede traer de una API o escribir a mano:
+
+| Origen | Qué cotiza |
+|---|---|
+| [dolarapi.com](https://dolarapi.com) | Contra el peso argentino: dólar **oficial, blue, MEP, CCL, tarjeta, mayorista y cripto**, y además euro, real, peso chileno y uruguayo. |
+| [open.er-api.com](https://open.er-api.com) | Cualquier otro par, como respaldo genérico. |
+
+Ninguna de las dos necesita clave ni registro.
+
+El origen se elige por moneda y queda guardado, así que el botón **Actualizar
+cotizaciones** refresca todo con el mismo criterio. Detalles que importan:
+
+- Para el dólar se usa el valor de **venta** (lo que te cuesta comprarlo), y el
+  mensaje de confirmación muestra también la compra.
+- Un tipo escrito **a mano nunca se pisa** al actualizar.
+- Si la API falla, **se conserva el valor anterior** y se avisa del error.
+- Junto a cada tipo se ve de dónde salió y hace cuánto se actualizó.
 
 **Convención de signo**: internamente un importe **positivo es un gasto** y uno
 **negativo es un ingreso**. En un extracto bancario (donde los gastos vienen en
@@ -82,7 +101,7 @@ Copia `.env.example` a `.env` para desarrollo local. En Railway se ponen en
 | `OPENROUTER_MODEL` | no | Modelo por defecto (`anthropic/claude-sonnet-4.5`). |
 | `DATA_DIR` | recomendada | Carpeta de datos (SQLite + archivos subidos). En Railway: la ruta del volumen, p. ej. `/data`. |
 | `DATABASE_URL` | no | Si la defines (p. ej. Postgres de Railway) se usa en vez de SQLite. |
-| `CURRENCY` | no | Moneda base (`ARS` por defecto). Ver *Monedas*. |
+| `CURRENCY` | no | Moneda base **inicial** (`ARS` por defecto); después manda lo que elijas en /ajustes. |
 | `LOCALE` | no | Formato de números y fechas (`es-AR` por defecto). |
 | `SESSION_MAX_AGE` | no | Duración de la sesión en segundos (7 días por defecto). |
 | `MAX_UPLOAD_MB` | no | Tamaño máximo por archivo (25 MB por defecto). |
@@ -131,6 +150,8 @@ app/
   ingest.py       lectura de CSV/Excel y normalización a transacciones
   analytics.py    agregaciones (por categoría, persona, mes, cruce…) y conversión de moneda
   currency.py     detección y normalización de monedas (ARS, USD, `US$`, `U$S`…)
+  rates.py        cotizaciones automáticas (dolarapi y open.er-api)
+  preferences.py  preferencias guardadas en la base (moneda base)
   llm.py          cliente de OpenRouter y contexto de datos del chat
   routers/        auth, archivos, dashboard, chat, ajustes
   templates/      Jinja2
