@@ -22,6 +22,14 @@
       <label for="default_person">Persona por defecto (opcional)</label>
       <input id="default_person" type="text" name="default_person" placeholder="Ej: Miguel">
     </div>
+    <div class="field">
+      <label for="default_currency">Moneda del archivo</label>
+      <select id="default_currency" name="default_currency">
+        {% for c in currencies %}
+        <option value="{{ c }}" {{ 'selected' if c == base_currency }}>{{ currency_label(c) }}</option>
+        {% endfor %}
+      </select>
+    </div>
     <button class="btn-primary" type="submit">Subir e importar</button>
   </div>
 </form>
@@ -90,6 +98,15 @@
             <input id="default_person-{{ f.id }}" type="text" name="default_person" value="{{ f.default_person }}">
           </div>
           <div class="field">
+            <label for="moneda-{{ f.id }}">Moneda del archivo</label>
+            <select id="moneda-{{ f.id }}" name="default_currency">
+              {% set elegida = item.mapping.get('default_currency') or base_currency %}
+              {% for c in currencies %}
+              <option value="{{ c }}" {{ 'selected' if c == elegida }}>{{ currency_label(c) }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
             <label for="invert-{{ f.id }}">Signo</label>
             <select id="invert-{{ f.id }}" name="invert_sign">
               <option value="" {{ 'selected' if not item.mapping.get('invert_sign') }}>Positivo = gasto</option>
@@ -100,7 +117,8 @@
         <div style="margin-top:12px; display:flex; gap:8px; align-items:center">
           <button type="submit" class="btn-primary btn-sm">Guardar y reimportar</button>
           <span class="hint" style="color:var(--text-muted); font-size:12px">
-            Reimportar reemplaza los movimientos de este archivo.
+            Reimportar reemplaza los movimientos de este archivo. La moneda del archivo solo se aplica
+            a las filas que no traigan la suya (columna de moneda o un <code>US$</code> en el importe).
           </span>
         </div>
       </form>

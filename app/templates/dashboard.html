@@ -59,6 +59,13 @@
       {% for c in options.categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
     </select>
   </div>
+  <div class="field" id="campo-moneda"{% if options.currencies | length < 2 %} hidden{% endif %}>
+    <label for="moneda">Moneda</label>
+    <select id="moneda" name="moneda">
+      <option value="">Todo en {{ options.base_currency }}</option>
+      {% for c in options.currencies %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+    </select>
+  </div>
   <button type="submit" class="btn-primary">Aplicar</button>
   <button type="button" id="limpiar">Limpiar</button>
   <a class="btn" id="exportar" href="/api/exportar.csv">Exportar CSV</a>
@@ -68,6 +75,9 @@
   <h2>Sin resultados</h2>
   <p class="subtitle">Ningun movimiento coincide con los filtros (o no hay archivos activos).</p>
 </div>
+
+<div class="flash err" id="aviso-monedas" hidden></div>
+<div class="flash ok" id="aviso-conversion" hidden></div>
 
 <div id="panel">
   <section class="grid grid-kpi" style="margin-bottom:16px">
@@ -90,6 +100,21 @@
       <span class="label">Balance</span>
       <span class="value" id="kpi-balance">-</span>
       <span class="meta" id="kpi-ingresos">-</span>
+    </div>
+  </section>
+
+  <section class="card" id="card-monedas" style="margin-bottom:16px" hidden>
+    <div class="card-head">
+      <h2>Por moneda</h2>
+      <span class="hint">Importes originales, sin convertir</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Moneda</th><th class="num">Gasto</th><th class="num">Ingreso</th><th class="num">Movimientos</th><th>Tipo de cambio</th></tr>
+        </thead>
+        <tbody id="tabla-monedas"></tbody>
+      </table>
     </div>
   </section>
 
@@ -160,7 +185,7 @@
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Fecha</th><th>Descripcion</th><th>Categoria</th><th>Persona</th><th>Archivo</th><th class="num">Importe</th></tr>
+          <tr><th>Fecha</th><th>Descripcion</th><th>Categoria</th><th>Persona</th><th>Archivo</th><th class="num">Importe</th><th>Moneda</th></tr>
         </thead>
         <tbody id="tabla-movimientos"></tbody>
       </table>

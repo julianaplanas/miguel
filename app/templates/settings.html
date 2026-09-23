@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Ajustes · {{ settings.app_name }}{% endblock %}
+
+{% block content %}
+<h1>Ajustes</h1>
+<p class="subtitle">Moneda base: <strong>{{ base_label }}</strong>. Se cambia con la variable de entorno <code>CURRENCY</code>.</p>
+
+{% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
+{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+{% if missing %}
+<div class="flash err">
+  Hay movimientos en {{ missing | join(', ') }} sin tipo de cambio cargado. Mientras falte,
+  el dashboard no puede juntar monedas: muestra cada una por separado.
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head">
+    <h2>Tipos de cambio</h2>
+    <span class="hint">Cuantos {{ base }} vale una unidad de cada moneda</span>
+  </div>
+  <p class="subtitle">
+    No se consulta ninguna cotizacion automatica: el tipo que te sirve (oficial, MEP, blue) es
+    decision tuya, asi que lo pones a mano. Deja el campo vacio y pulsa Guardar para borrarlo.
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Moneda</th>
+          <th class="num">1 unidad =</th>
+          <th>Actualizado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td>
+            {{ row.label }}
+            {% if row.in_use %}<span class="badge on"><span class="dot"></span>en uso</span>{% endif %}
+          </td>
+          <td colspan="3">
+            <form method="post" action="/ajustes/tipo-de-cambio"
+                  style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+              <input type="hidden" name="code" value="{{ row.code }}">
+              <input type="text" inputmode="decimal" name="rate" style="min-width:120px"
+                     value="{{ '' if row.rate is none else row.rate }}"
+                     placeholder="ej. 1450"
+                     aria-label="Tipo de cambio de {{ row.code }} a {{ base }}">
+              <span style="color:var(--text-muted)">{{ base }}</span>
+              <button type="submit" class="btn-sm">Guardar</button>
+              <span class="file-meta">
+                {% if row.stale_base %}
+                  Guardado contra otra moneda base: vuelve a cargarlo.
+                {% elif row.updated_at %}
+                  {{ row.updated_at.strftime('%d/%m/%Y %H:%M') }}
+                {% else %}
+                  Sin cargar
+                {% endif %}
+              </span>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-head"><h2>Como se usan</h2></div>
+  <ul style="margin:0; padding-left:20px; color:var(--text-secondary)">
+    <li>En el dashboard, el selector <strong>Moneda</strong> deja ver una sola moneda tal cual viene,
+      sin convertir nada.</li>
+    <li>Con <strong>Todo en {{ base }}</strong>, cada importe se multiplica por su tipo de cambio.
+      Requiere tener cargadas todas las monedas que aparezcan en los datos.</li>
+    <li>La tabla de movimientos siempre muestra el importe y la moneda originales.</li>
+  </ul>
+</div>
+{% endblock %}

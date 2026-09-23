@@ -18,6 +18,8 @@ from typing import Any
 
 import pandas as pd
 
+from app import currency as cur
+
 FIELDS = ["date", "amount", "description", "category", "person", "account", "currency", "kind"]
 
 ALIASES: dict[str, list[str]] = {
@@ -221,16 +223,30 @@ class ParsedFile:
         return len(self.rows)
 
 
+def _row_currency(row: Any, mapping: dict[str, Any], default_currency: str) -> str:
+    """Moneda de una fila: columna de moneda > simbolo en el importe > defecto."""
+    if "currency" in mapping:
+        code = cur.normalize_code(row.get(mapping["currency"]), "")
+        if code:
+            return code
+    code = cur.detect_in_amount(row.get(mapping["amount"]), "")
+    return code or default_currency
+
+
 def parse_file(
     path: str | Path,
     mapping: dict[str, Any] | None = None,
     default_person: str = "",
+    default_currency: str = "",
     raw: bytes | None = None,
 ) -> ParsedFile:
     """Convierte un archivo en filas normalizadas listas para guardar.
 
     Convencion de signo: el importe guardado es positivo cuando es un gasto y
     negativo cuando es un ingreso, independientemente de como venga el archivo.
+
+    La moneda de cada fila sale, por orden: de la columna de moneda, de un
+    simbolo dentro del propio importe ('US$ 1.200'), o de `default_currency`.
     """
     df = read_table(path, raw=raw)
     df = df.dropna(how="all")
@@ -276,6 +292,12 @@ def parse_file(
 
     kinds = df[mapping["kind"]].map(lambda v: normalize_header(v)) if "kind" in mapping else None
 
+    default_currency = cur.normalize_code(
+        default_currency or mapping.get("default_currency") or "", ""
+    )
+    if default_currency:
+        mapping["default_currency"] = default_currency
+
     invert = mapping.get("invert_sign")
     if invert is None:
         numeric = amounts[valid].astype(float)
@@ -313,7 +335,7 @@ def parse_file(
                     else (default_person or "Sin asignar")[:160]
                 ),
                 "account": _clean_text(row.get(mapping["account"]))[:160] if "account" in mapping else "",
-                "currency": _clean_text(row.get(mapping["currency"]))[:8] if "currency" in mapping else "",
+                "currency": _row_currency(row, mapping, default_currency),
                 "raw": json.dumps({str(k): _json_safe(v) for k, v in row.items()}, ensure_ascii=False)[:8000],
             }
         )

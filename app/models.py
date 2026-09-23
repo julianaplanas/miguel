@@ -77,3 +77,19 @@ class ChatMessage(Base):
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
     model: Mapped[str] = mapped_column(String(160), default="")
+
+
+class ExchangeRate(Base):
+    """Tipo de cambio hacia la moneda base: 1 `code` = `rate` de la base.
+
+    No se consulta ninguna API: en Argentina el tipo que le sirve a cada uno
+    (oficial, MEP, blue) es una decision personal, asi que el valor lo pone
+    el usuario a mano desde Ajustes.
+    """
+
+    __tablename__ = "exchange_rates"
+
+    code: Mapped[str] = mapped_column(String(8), primary_key=True)
+    base: Mapped[str] = mapped_column(String(8), default="")
+    rate: Mapped[float] = mapped_column(Float, default=1.0)
+    updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)

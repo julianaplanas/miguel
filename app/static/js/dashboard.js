@@ -18,6 +18,8 @@
       .forEach(function (o) { params.append('persona', o.value); });
     Array.from(document.getElementById('categoria').selectedOptions)
       .forEach(function (o) { params.append('categoria', o.value); });
+    var moneda = document.getElementById('moneda');
+    if (moneda && moneda.value) { params.append('moneda', moneda.value); }
     return params.toString();
   }
 
@@ -110,10 +112,13 @@
         td.textContent = value;
         tr.appendChild(td);
       });
-      const td = document.createElement('td');
-      td.className = 'num';
-      td.textContent = Viz.money(r.importe);
-      tr.appendChild(td);
+      const importe = document.createElement('td');
+      importe.className = 'num';
+      importe.textContent = Viz.money(r.importe, r.moneda);
+      tr.appendChild(importe);
+      const moneda = document.createElement('td');
+      moneda.textContent = r.moneda || '';
+      tr.appendChild(moneda);
       tbody.appendChild(tr);
     });
     const mostrados = Math.min(data.offset + data.rows.length, data.total);
@@ -131,6 +136,56 @@
     pintarMovimientos(await res.json(), append);
   }
 
+
+  function pintarAvisos(data) {
+    const faltan = document.getElementById('aviso-monedas');
+    const conversion = document.getElementById('aviso-conversion');
+    if (data.missing_rates && data.missing_rates.length) {
+      faltan.hidden = false;
+      faltan.innerHTML = 'Falta el tipo de cambio de <strong>' + data.missing_rates.join(', ') +
+        '</strong>, asi que no se pueden juntar las monedas. Mostrando solo ' + data.currency +
+        '. <a href="/ajustes">Cargar tipo de cambio</a>';
+    } else {
+      faltan.hidden = true;
+    }
+    if (data.converted) {
+      conversion.hidden = false;
+      const partes = Object.keys(data.rates || {})
+        .filter(function (c) { return c !== data.currency; })
+        .map(function (c) { return '1 ' + c + ' = ' + data.rates[c] + ' ' + data.currency; });
+      conversion.textContent = 'Todo convertido a ' + data.currency +
+        (partes.length ? ' (' + partes.join(' · ') + ').' : '.');
+    } else {
+      conversion.hidden = true;
+    }
+  }
+
+  function pintarMonedas(data) {
+    const card = document.getElementById('card-monedas');
+    const tbody = document.getElementById('tabla-monedas');
+    const filas = data.by_currency || [];
+    card.hidden = filas.length < 2;
+    tbody.innerHTML = '';
+    if (filas.length < 2) return;
+    filas.forEach(function (f) {
+      const tr = document.createElement('tr');
+      const celdas = [
+        f.code,
+        Viz.money(f.expense, f.code),
+        Viz.money(f.income, f.code),
+        String(f.transactions),
+        f.code === data.currency ? '—' : (f.rate ? '1 = ' + f.rate + ' ' + data.currency : 'sin cargar')
+      ];
+      celdas.forEach(function (valor, i) {
+        const td = document.createElement('td');
+        if (i >= 1 && i <= 3) td.className = 'num';
+        td.textContent = valor;
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
   async function cargar() {
     const qs = queryString();
     document.getElementById('exportar').href = '/api/exportar.csv' + (qs ? '?' + qs : '');
@@ -141,6 +196,9 @@
     }
     const data = await res.json();
     ultimoResumen = data;
+    Viz.setCurrency(data.currency);
+    pintarAvisos(data);
+    pintarMonedas(data);
     const sinDatos = data.kpis.transactions === 0;
     vacio.hidden = !sinDatos;
     panel.hidden = sinDatos;
@@ -163,6 +221,8 @@
     ['persona', 'categoria'].forEach(function (id) {
       Array.from(document.getElementById(id).options).forEach(function (o) { o.selected = false; });
     });
+    const moneda = document.getElementById('moneda');
+    if (moneda) moneda.value = '';
     cargar();
   });
 

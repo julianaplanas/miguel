@@ -18,7 +18,11 @@ Recibes un resumen agregado en JSON (totales por categoria, por persona, por mes
 cruce persona x categoria, mayores gastos y una muestra de transacciones).
 
 Reglas:
-- Responde SIEMPRE en espanol, claro y concreto. Usa la moneda {currency}.
+- Responde SIEMPRE en espanol, claro y concreto.
+- La moneda base es {currency}. El bloque `monedas` del resumen dice que monedas
+  hay y su tipo de cambio. Si hay mas de una, NUNCA sumes importes de monedas
+  distintas sin convertirlos, y di explicitamente en que moneda esta cada cifra.
+  Si falta el tipo de cambio de alguna, dilo en vez de estimarlo.
 - Basa cada afirmacion en los datos recibidos. Si algo no esta en los datos, dilo
   en vez de inventarlo.
 - Da cifras con dos decimales y porcentajes cuando ayuden a comparar.
@@ -54,10 +58,19 @@ def build_data_context(db: Session, max_sample: int = 40) -> dict[str, Any]:
             "categoria": r["category"],
             "persona": r["person"],
             "importe": round(r["amount"], 2),
+            "moneda": r["currency"],
         }
         for r in rows[:max_sample]
     ]
     return {
+        "moneda_base": get_settings().currency,
+        "monedas": {
+            "presentes": summary["currencies"],
+            "convertido_a": summary["currency"] if summary["converted"] else None,
+            "tipos_de_cambio": summary["rates"],
+            "sin_tipo_de_cambio": summary["missing_rates"],
+            "totales_por_moneda": summary["by_currency"],
+        },
         "kpis": summary["kpis"],
         "por_categoria": summary["by_category"],
         "por_persona": summary["by_person"],

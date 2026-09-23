@@ -23,6 +23,7 @@ def _filters(
     persona: list[str] | None = Query(None),
     categoria: list[str] | None = Query(None),
     archivo: list[int] | None = Query(None),
+    moneda: str | None = Query(None),
 ) -> Filters:
     return Filters(
         date_from=parse_date(desde),
@@ -30,6 +31,7 @@ def _filters(
         persons=[p for p in (persona or []) if p],
         categories=[c for c in (categoria or []) if c],
         file_ids=archivo or [],
+        currency=(moneda or "").strip().upper() or None,
     )
 
 
@@ -94,6 +96,7 @@ def api_transactions(
                 "persona": r["person"],
                 "cuenta": r["account"],
                 "importe": round(r["amount"], 2),
+                "moneda": r["currency"],
                 "archivo": r["filename"],
             }
             for r in page
@@ -111,7 +114,7 @@ def export_csv(
     rows.sort(key=lambda r: (r["date"] is not None, r["date"]), reverse=True)
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";")
-    writer.writerow(["fecha", "descripcion", "categoria", "persona", "cuenta", "importe", "archivo"])
+    writer.writerow(["fecha", "descripcion", "categoria", "persona", "cuenta", "importe", "moneda", "archivo"])
     for r in rows:
         writer.writerow(
             [
@@ -121,6 +124,7 @@ def export_csv(
                 r["person"],
                 r["account"],
                 f"{r['amount']:.2f}",
+                r["currency"],
                 r["filename"],
             ]
         )

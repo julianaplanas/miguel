@@ -28,8 +28,8 @@ class Settings:
         self.data_dir: Path = Path(os.getenv("DATA_DIR", "./data")).resolve()
         self.upload_dir: Path = self.data_dir / "uploads"
 
-        self.currency: str = os.getenv("CURRENCY", "EUR")
-        self.locale: str = os.getenv("LOCALE", "es-ES")
+        self.currency: str = os.getenv("CURRENCY", "ARS").upper()
+        self.locale: str = os.getenv("LOCALE", "es-AR")
 
         self.openrouter_api_key: str = os.getenv("OPENROUTER_API_KEY", "")
         self.openrouter_model: str = os.getenv("OPENROUTER_MODEL", "anthropic/claude-sonnet-4.5")

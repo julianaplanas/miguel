@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app import currency as cur
 from app.config import get_settings
 from app.deps import require_user, templates
 from app.ingest import FIELDS, parse_file
@@ -40,7 +41,7 @@ def _import_rows(db: Session, record: UploadedFile, parsed) -> None:
                 date=row["date"],
                 description=row["description"],
                 amount=row["amount"],
-                currency=row["currency"] or get_settings().currency,
+                currency=(row["currency"] or get_settings().currency).upper(),
                 category=row["category"] or "Sin categoria",
                 person=row["person"] or "Sin asignar",
                 account=row["account"],
@@ -79,6 +80,9 @@ def files_page(
         {
             "files": files,
             "fields": FIELDS,
+            "currencies": cur.known_codes(),
+            "currency_label": cur.label,
+            "base_currency": get_settings().currency,
             "message": message,
             "error": error,
             "active_page": "files",
@@ -93,6 +97,7 @@ async def upload(
     _: str = Depends(require_user),
     file: UploadFile = File(...),
     default_person: str = Form(""),
+    default_currency: str = Form(""),
 ):
     settings = get_settings()
     suffix = _safe_suffix(file.filename or "")
@@ -119,7 +124,12 @@ async def upload(
     db.flush()
 
     try:
-        parsed = parse_file(stored_path, default_person=default_person.strip(), raw=content)
+        parsed = parse_file(
+            stored_path,
+            default_person=default_person.strip(),
+            default_currency=default_currency.strip() or settings.currency,
+            raw=content,
+        )
         _import_rows(db, record, parsed)
     except Exception as exc:  # noqa: BLE001 - mostramos el motivo al usuario
         db.rollback()
@@ -168,6 +178,7 @@ def remap(
     kind: str = Form(""),
     invert_sign: str = Form(""),
     default_person: str = Form(""),
+    default_currency: str = Form(""),
 ):
     record = db.get(UploadedFile, file_id)
     if not record:
@@ -188,6 +199,7 @@ def remap(
         if value
     }
     mapping["invert_sign"] = invert_sign.lower() in {"1", "true", "on", "si"}
+    mapping["default_currency"] = cur.normalize_code(default_currency, get_settings().currency)
 
     path = Path(record.stored_path)
     if not path.exists():
@@ -196,7 +208,12 @@ def remap(
             status_code=status.HTTP_303_SEE_OTHER,
         )
     try:
-        parsed = parse_file(path, mapping=mapping, default_person=default_person.strip())
+        parsed = parse_file(
+            path,
+            mapping=mapping,
+            default_person=default_person.strip(),
+            default_currency=mapping["default_currency"],
+        )
         record.default_person = default_person.strip()
         _import_rows(db, record, parsed)
     except Exception as exc:  # noqa: BLE001

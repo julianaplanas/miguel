@@ -19,17 +19,36 @@
     series(index) { return cssVar('--series-' + ((index % SERIES_SLOTS) + 1), '#2a78d6'); }
   };
 
-  const currency = window.APP_CURRENCY || 'EUR';
-  const locale = window.APP_LOCALE || 'es-ES';
-
-  const moneyFmt = new Intl.NumberFormat(locale, {
-    style: 'currency', currency: currency, maximumFractionDigits: 2
-  });
+  const locale = window.APP_LOCALE || 'es-AR';
+  /* La moneda que se muestra cambia segun el filtro del dashboard (y cada fila
+     de la tabla puede traer la suya), asi que se resuelve en cada llamada. */
+  let currency = window.APP_CURRENCY || 'ARS';
+  const formatters = {};
   const compactFmt = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 });
 
-  function money(value) {
+  function formatterFor(code) {
+    if (!formatters[code]) {
+      try {
+        formatters[code] = new Intl.NumberFormat(locale, {
+          style: 'currency', currency: code, maximumFractionDigits: 2
+        });
+      } catch (e) {
+        formatters[code] = null;
+      }
+    }
+    return formatters[code];
+  }
+
+  function setCurrency(code) {
+    if (code) { currency = String(code).toUpperCase(); }
+  }
+
+  function money(value, code) {
     if (value === null || value === undefined || isNaN(value)) return '-';
-    try { return moneyFmt.format(value); } catch (e) { return value.toFixed(2) + ' ' + currency; }
+    const usado = (code || currency).toUpperCase();
+    const fmt = formatterFor(usado);
+    if (!fmt) { return value.toFixed(2) + ' ' + usado; }
+    try { return fmt.format(value); } catch (e) { return value.toFixed(2) + ' ' + usado; }
   }
   function compact(value) {
     try { return compactFmt.format(value); } catch (e) { return String(value); }
@@ -235,6 +254,7 @@
   window.Viz = {
     theme: theme,
     money: money,
+    setCurrency: setCurrency,
     compact: compact,
     monthLabel: monthLabel,
     baseOptions: baseOptions,

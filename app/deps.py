@@ -13,7 +13,8 @@ BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
-def _format_money(value: float | int | None) -> str:
+def _format_money(value: float | int | None, code: str | None = None) -> str:
+    """Formato es-AR: 1.234,56 ARS. El codigo se puede pasar por fila."""
     if value is None:
         return "-"
     try:
@@ -21,7 +22,7 @@ def _format_money(value: float | int | None) -> str:
     except (TypeError, ValueError):
         return "-"
     text = f"{value:,.2f}".replace(",", " ").replace(".", ",").replace(" ", ".")
-    return f"{text} {get_settings().currency}"
+    return f"{text} {(code or get_settings().currency).upper()}"
 
 
 templates.env.filters["money"] = _format_money

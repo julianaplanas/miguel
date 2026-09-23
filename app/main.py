@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.db import init_db
 from app.deps import templates
 from app.routers import auth, chat, dashboard, files
+from app.routers import settings as settings_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("gastos")
@@ -45,6 +46,7 @@ app.include_router(auth.router)
 app.include_router(dashboard.router)
 app.include_router(files.router)
 app.include_router(chat.router)
+app.include_router(settings_router.router)
 
 
 @app.get("/healthz")

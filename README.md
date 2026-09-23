@@ -16,6 +16,7 @@ Pensada para desplegarse en **Railway** con un par de variables de entorno.
 | **/archivos** | Subir CSV/TSV/Excel, activar o desactivar cada archivo, corregir el mapeo de columnas, descargar o borrar. |
 | **/** (dashboard) | KPIs, evolución mensual, gasto por categoría, por persona, cruce persona × categoría, gasto por día de la semana, mayores gastos, tabla de movimientos, exportación a CSV. |
 | **/chat** | Preguntas en lenguaje natural sobre los datos activos. El modelo puede devolver gráficos que se dibujan en la conversación. |
+| **/ajustes** | Tipos de cambio hacia la moneda base, para poder juntar pesos y dólares en un mismo total. |
 
 Solo los archivos marcados como **activos** entran en el dashboard y en el chat,
 así que puedes tener varios exports subidos y combinarlos o aislarlos sin borrar nada.
@@ -34,6 +35,30 @@ su nombre (en español o inglés) y se normalizan fechas e importes.
 
 Se aceptan importes en formato español (`1.234,56`), inglés (`1,234.56`),
 entre paréntesis (`(89,90)` = negativo) y con símbolo de moneda.
+
+## Monedas (pesos y dólares)
+
+La moneda base se fija con `CURRENCY` (por defecto `ARS`). Cada movimiento guarda
+**su propia** moneda, que se detecta así, por orden:
+
+1. Una columna de moneda (`moneda`, `divisa`, `currency`) — acepta `USD`, `dólares`, `pesos`…
+2. Un símbolo dentro del propio importe: `US$ 120,50` o `U$S 120,50` → dólares.
+   Ojo: `$` **a secas se interpreta como la moneda del archivo**, que en Argentina
+   normalmente es pesos.
+3. La moneda que elijas para ese archivo al subirlo (por defecto, la base).
+
+Con eso, **nunca se suman importes de monedas distintas**. En el dashboard el
+selector *Moneda* ofrece:
+
+- **Una moneda concreta** — muestra solo esos movimientos, con sus importes tal cual.
+- **Todo en ARS** — convierte cada importe con el tipo de cambio que tengas cargado.
+  Si falta el de alguna moneda, el dashboard **no inventa el total**: avisa, muestra
+  solo la moneda mayoritaria y te enlaza a Ajustes.
+
+Los tipos de cambio se cargan a mano en **/ajustes** y no se consulta ninguna API:
+en Argentina el tipo que te sirve (oficial, MEP, blue) es una decisión tuya. La
+tabla de movimientos y el CSV exportado siempre llevan el importe y la moneda
+originales, sin convertir.
 
 **Convención de signo**: internamente un importe **positivo es un gasto** y uno
 **negativo es un ingreso**. En un extracto bancario (donde los gastos vienen en
@@ -57,7 +82,8 @@ Copia `.env.example` a `.env` para desarrollo local. En Railway se ponen en
 | `OPENROUTER_MODEL` | no | Modelo por defecto (`anthropic/claude-sonnet-4.5`). |
 | `DATA_DIR` | recomendada | Carpeta de datos (SQLite + archivos subidos). En Railway: la ruta del volumen, p. ej. `/data`. |
 | `DATABASE_URL` | no | Si la defines (p. ej. Postgres de Railway) se usa en vez de SQLite. |
-| `CURRENCY` | no | Moneda mostrada (`EUR` por defecto). |
+| `CURRENCY` | no | Moneda base (`ARS` por defecto). Ver *Monedas*. |
+| `LOCALE` | no | Formato de números y fechas (`es-AR` por defecto). |
 | `SESSION_MAX_AGE` | no | Duración de la sesión en segundos (7 días por defecto). |
 | `MAX_UPLOAD_MB` | no | Tamaño máximo por archivo (25 MB por defecto). |
 
@@ -69,7 +95,8 @@ Copia `.env.example` a `.env` para desarrollo local. En Railway se ponen en
    y `OPENROUTER_API_KEY`.
 3. **Persistencia** (importante: el disco del contenedor se borra en cada deploy):
    - *Opción A (simple)*: crea un **Volume** montado en `/data` y pon `DATA_DIR=/data`.
-     Los archivos subidos y la base SQLite viven ahí.
+     Los archivos subidos y la base SQLite viven ahí. **Sin volumen se pierde todo
+     en cada deploy**, así que no es opcional si quieres conservar los archivos.
    - *Opción B*: añade el plugin **Postgres**; Railway inyecta `DATABASE_URL` y la app
      lo usa automáticamente. Aun así conviene un volumen para los archivos originales
      (hacen falta para reimportar tras cambiar el mapeo).
@@ -102,12 +129,13 @@ app/
   models.py       UploadedFile, Transaction, ChatMessage
   security.py     login de usuario único con cookie firmada
   ingest.py       lectura de CSV/Excel y normalización a transacciones
-  analytics.py    agregaciones (por categoría, persona, mes, cruce…)
+  analytics.py    agregaciones (por categoría, persona, mes, cruce…) y conversión de moneda
+  currency.py     detección y normalización de monedas (ARS, USD, `US$`, `U$S`…)
   llm.py          cliente de OpenRouter y contexto de datos del chat
-  routers/        auth, archivos, dashboard, chat
+  routers/        auth, archivos, dashboard, chat, ajustes
   templates/      Jinja2
   static/         CSS, JS de gráficos y Chart.js (incluido en el repo)
-tests/            pruebas de ingesta y de la app completa
+tests/            pruebas de ingesta, monedas y de la app completa
 ```
 
 ## Notas
