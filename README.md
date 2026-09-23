@@ -25,28 +25,40 @@ así que puedes tener varios exports subidos y combinarlos o aislarlos sin borra
 ## Categorías
 
 Un extracto bancario no trae categoría: trae `COMPRA COTO DIGITAL` y poco más.
-Así que se deduce de la descripción, con reglas de texto simples y explicables.
+Así que se deduce de la descripción.
 
-La app trae **reglas de fábrica pensadas para Argentina**: cadenas de
-supermercado, estaciones de servicio, peajes, prepagas y farmacias, servicios
-(Edenor, Metrogas, Aysa, telefonía), suscripciones, impuestos (AFIP, ARBA, ABL,
-ley 25413), comisiones bancarias, cajeros y sueldos.
+**Por defecto decide el modelo** (si hay `OPENROUTER_API_KEY`). Al importar, cada
+descripción que no se haya visto antes se le pregunta, y **la respuesta se guarda
+como regla**: ese comercio no se vuelve a preguntar nunca más. Es una llamada por
+importación, con las descripciones distintas agrupadas — no una por línea.
 
-Tres formas de completar lo que falte, de menos a más automática:
+El orden al importar es:
 
-1. **A mano en la tabla** — en el dashboard, un click en la categoría la
-   convierte en un selector. Al guardar podés marcar *"aplicar a todos los que
-   digan lo mismo"*, que además crea una regla para los archivos futuros.
-2. **Desde /categorias** — lista lo que quedó sin categorizar agrupado por
-   descripción y ordenado por importe, para asignar en bloque lo que más pesa.
-3. **Sugerir con IA** — manda al modelo solo las descripciones distintas que
-   ninguna regla reconoció y crea una regla por cada una, para que las revises.
-   Necesita `OPENROUTER_API_KEY`.
+1. **Tus correcciones a mano** — siempre mandan.
+2. **Reglas guardadas** — la caché de lo que ya respondió el modelo y lo que
+   corregiste antes.
+3. **El modelo** — para lo que nunca se vio.
+4. **Reglas de fábrica** — para lo que el modelo no supo, o cuando no hay clave.
+
+Las de fábrica son una lista pensada para Argentina (cadenas de supermercado,
+estaciones de servicio, peajes, prepagas, servicios, impuestos, comisiones
+bancarias, sueldos). Sirven como respaldo sin red, no como la vía de crecimiento:
+para un comercio nuevo no hace falta tocar código.
+
+En Ajustes se puede cambiar a **solo reglas**, que no consulta al modelo.
+
+Para corregir:
+
+- **En la tabla del dashboard** — un click en la categoría la convierte en
+  selector. Al guardar podés marcar *"aplicar a todos los que digan lo mismo"*,
+  que además crea una regla para los archivos futuros.
+- **En /categorias** — lo que quedó sin categorizar, agrupado por descripción y
+  ordenado por importe, para asignar en bloque lo que más pesa. También están
+  todas las reglas guardadas, para borrar las que no te convenzan.
 
 Dos garantías: **lo que corregís a mano no se vuelve a pisar** al recategorizar,
-y **si el archivo trae categoría, manda el archivo**. Entre reglas gana la más
-específica, salvo unas pocas que tienen prioridad explícita porque la longitud
-engaña: `TRANSFERENCIA RECIBIDA SUELDO` es un ingreso, no una transferencia.
+y **si el archivo trae categoría, manda el archivo**. Si el modelo falla, la
+importación no se pierde: los movimientos quedan guardados y se cae a las reglas.
 
 ## Resúmenes en PDF
 

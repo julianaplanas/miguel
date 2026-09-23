@@ -14,12 +14,17 @@ from app.analytics import available_options, fetch_rows, Filters
 from app.db import get_db
 from app.deps import require_user, templates
 from app.models import ExchangeRate, RateHistory
+from app.config import get_settings
 from app.preferences import (
+    CAT_AI,
+    CAT_RULES,
     MODE_CURRENT,
     MODE_HISTORICAL,
     base_currency,
+    categorization_mode,
     conversion_mode,
     set_base_currency,
+    set_categorization_mode,
     set_conversion_mode,
 )
 
@@ -123,6 +128,10 @@ def settings_page(
             "mode_current": MODE_CURRENT,
             "mode_historical": MODE_HISTORICAL,
             "period": _period(db),
+            "categorization": categorization_mode(db),
+            "cat_ai": CAT_AI,
+            "cat_rules": CAT_RULES,
+            "chat_enabled": get_settings().chat_enabled,
             "can_refresh_all": any(f["auto"] or f["in_use"] for f in filas),
             "message": message,
             "error": error,
@@ -315,3 +324,21 @@ def clear_history(
     db.execute(delete(RateHistory).where(RateHistory.code == code, RateHistory.base == base))
     db.commit()
     return _redirect(message=f"Se borro el historico de {code}")
+
+
+@router.post("/categorizacion")
+def save_categorization(
+    db: Session = Depends(get_db),
+    _: str = Depends(require_user),
+    mode: str = Form(...),
+):
+    try:
+        elegido = set_categorization_mode(db, mode)
+    except ValueError:
+        return _redirect(error="Estrategia no valida")
+    if elegido == CAT_AI:
+        return _redirect(
+            message="Las categorias las decide el modelo. Cada descripcion se pregunta una "
+            "sola vez y la respuesta queda guardada como regla."
+        )
+    return _redirect(message="Las categorias salen solo de las reglas, sin consultar al modelo.")

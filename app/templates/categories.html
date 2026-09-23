@@ -5,10 +5,11 @@
 <h1>Categorias</h1>
 <p class="subtitle">
   Un extracto bancario no trae categoria: se deduce de la descripcion.
-  {% if total %}
+  <a href="/ajustes">Quien decide</a> (el modelo o las reglas) se elige en Ajustes.
+  {%- if total %}
   {{ total - uncategorized }} de {{ total }} movimientos categorizados
-  {% if uncategorized %}· quedan <strong>{{ uncategorized }}</strong> sin categorizar{% endif %}.
-  {% endif %}
+  {%- if uncategorized %} · quedan <strong>{{ uncategorized }}</strong> sin categorizar{% endif %}.
+  {%- endif %}
 </p>
 
 {% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
@@ -39,7 +40,8 @@
       con categoria en el archivo.
       {% if chat_enabled %}
       <strong>Sugerir con IA</strong> le manda al modelo solo las descripciones distintas que
-      quedan sin categorizar y crea una regla por cada una, para que las revises.
+      quedan sin categorizar y crea una regla por cada una, para que las revises. Si ya
+      tenes la categorizacion con IA activada, esto corre solo al importar.
       {% else %}
       Para sugerir categorias con IA hace falta configurar <code>OPENROUTER_API_KEY</code>.
       {% endif %}
@@ -97,9 +99,10 @@
     </div>
     {% if not rules %}
       <p class="subtitle" style="margin:0">
-        Todavia no hay reglas propias. La app ya trae unas cuantas de fabrica
-        (Coto, YPF, Netflix, Edenor, farmacias, peajes...), y las que agregues aca les ganan
-        cuando son mas especificas.
+        Todavia no hay reglas guardadas. Aca van apareciendo las que corrijas a mano y las
+        que responda el modelo: cada una queda cacheada para no volver a preguntar por ese
+        comercio. Ademas hay una lista de fabrica (Coto, YPF, Netflix, Edenor, farmacias,
+        peajes...) que se usa cuando el modelo no esta disponible.
       </p>
     {% else %}
     <div class="table-wrap">

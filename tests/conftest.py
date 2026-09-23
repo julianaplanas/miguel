@@ -25,6 +25,7 @@ def reset_db() -> None:
     from app.db import SessionLocal, init_db
     from app.models import (
         AppSetting,
+        CategoryRule,
         ChatMessage,
         ExchangeRate,
         RateHistory,
@@ -40,6 +41,7 @@ def reset_db() -> None:
             ExchangeRate,
             RateHistory,
             ChatMessage,
+            CategoryRule,
             AppSetting,
         ):
             db.execute(delete(tabla))

@@ -25,12 +25,19 @@ from app.models import CategoryRule, Transaction
 REPLACEABLE = {SOURCE_NONE, SOURCE_RULE, SOURCE_AI}
 
 
-def load_rules(db: Session) -> list[Rule]:
-    """Reglas del usuario + las de fabrica, ordenadas por especificidad."""
+def load_rules(db: Session, include_defaults: bool = True) -> list[Rule]:
+    """Reglas guardadas y, si se piden, las de fabrica.
+
+    Las guardadas son dos cosas a la vez: lo que el usuario corrigio a mano
+    y la **cache** de lo que el modelo ya respondio. Por eso se consultan
+    siempre antes de volver a preguntar.
+    """
     propias = [
         Rule(pattern=r.pattern, category=r.category, source=r.source or "manual")
         for r in db.execute(select(CategoryRule)).scalars().all()
     ]
+    if not include_defaults:
+        return sort_rules(propias)
     return sort_rules(propias + default_rules())
 
 
@@ -141,3 +148,36 @@ def uncategorized_descriptions(db: Session, limit: int = 200) -> list[tuple[str,
 
     ordenadas = sorted(agrupadas.items(), key=lambda kv: kv[1]["total"], reverse=True)
     return [(desc, datos["veces"], round(datos["total"], 2)) for desc, datos in ordenadas[:limit]]
+
+
+async def ai_categorize_pending(db: Session, limit: int = 200) -> tuple[int, int]:
+    """Pregunta al modelo por las descripciones sin categorizar.
+
+    Se le mandan solo las descripciones DISTINTAS, y cada respuesta se
+    guarda como regla: la proxima vez que aparezca ese comercio ya no hace
+    falta preguntar. Devuelve (reglas creadas, movimientos actualizados).
+
+    Puede lanzar OpenRouterError: el que llama decide si eso aborta lo que
+    este haciendo o solo se avisa.
+    """
+    from app.llm import suggest_categories  # import diferido: evita un ciclo
+
+    pendientes = [descripcion for descripcion, _veces, _total in uncategorized_descriptions(db, limit)]
+    if not pendientes:
+        return 0, 0
+
+    sugerencias = await suggest_categories(pendientes)
+
+    creadas = 0
+    aplicados = 0
+    for descripcion, categoria in sugerencias.items():
+        categoria = (categoria or "").strip()
+        if not categoria or is_uncategorized(categoria):
+            continue
+        try:
+            save_rule(db, descripcion, categoria, source=SOURCE_AI)
+        except ValueError:
+            continue
+        creadas += 1
+        aplicados += apply_rule(db, descripcion, categoria)
+    return creadas, aplicados

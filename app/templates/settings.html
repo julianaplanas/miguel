@@ -39,6 +39,44 @@
 
   <div class="card">
     <div class="card-head">
+      <h2>Como se categoriza</h2>
+      <span class="hint">De donde sale la categoria de cada movimiento</span>
+    </div>
+    <form method="post" action="/ajustes/categorizacion" class="stack" style="gap:10px">
+      <label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer">
+        <input type="radio" name="mode" value="{{ cat_ai }}" {{ 'checked' if categorization == cat_ai }}
+               style="margin-top:4px; min-width:auto" {{ 'disabled' if not chat_enabled }}>
+        <span>
+          <strong>Que decida el modelo</strong>
+          {% if not chat_enabled %}<span class="badge off">necesita OPENROUTER_API_KEY</span>{% endif %}<br>
+          <span style="color:var(--text-secondary); font-size:13px">
+            Al importar, cada descripcion que no se haya visto antes se le pregunta al modelo.
+            La respuesta queda guardada como regla, asi que ese comercio no se vuelve a
+            preguntar nunca mas. Entiende comercios que ninguna lista tendria.
+          </span>
+        </span>
+      </label>
+      <label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer">
+        <input type="radio" name="mode" value="{{ cat_rules }}" {{ 'checked' if categorization == cat_rules }}
+               style="margin-top:4px; min-width:auto">
+        <span>
+          <strong>Solo reglas</strong><br>
+          <span style="color:var(--text-secondary); font-size:13px">
+            Sin consultar al modelo: tus reglas mas una lista de fabrica con los comercios y
+            servicios argentinos mas comunes. Es instantaneo y no sale de tu servidor, pero
+            solo reconoce lo que esta en la lista.
+          </span>
+        </span>
+      </label>
+      <div>
+        <button type="submit" class="btn-primary btn-sm">Guardar</button>
+        <span class="file-meta">Tus correcciones a mano siempre mandan sobre las dos.</span>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
       <h2>Como se convierte</h2>
       <span class="hint">Solo afecta a la vista "Todo en {{ base }}"</span>
     </div>

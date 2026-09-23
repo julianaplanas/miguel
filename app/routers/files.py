@@ -13,8 +13,9 @@ from sqlalchemy.orm import Session
 from app import currency as cur
 from app.config import get_settings
 from app.deps import require_user, templates
-from app.preferences import base_currency
-from app.rules import categorize_rows, load_rules
+from app.llm import OpenRouterError
+from app.preferences import CAT_AI, base_currency, categorization_mode
+from app.rules import ai_categorize_pending, categorize_rows, load_rules, recategorize
 from app.ingest import FIELDS, parse_file
 from app.db import get_db
 from app.models import Transaction, UploadedFile
@@ -37,7 +38,12 @@ def _safe_suffix(filename: str) -> str:
 def _import_rows(db: Session, record: UploadedFile, parsed) -> None:
     base = base_currency(db)
     # Un extracto bancario no trae categoria: se deduce de la descripcion.
-    categorizadas = categorize_rows(parsed.rows, load_rules(db))
+    # Con el modelo activado se consultan primero las reglas guardadas (lo
+    # que el usuario corrigio y lo que el modelo ya respondio antes) y el
+    # resto se le pregunta al modelo despues de guardar; sin modelo, se usan
+    # tambien las reglas de fabrica.
+    con_ia = categorization_mode(db) == CAT_AI and get_settings().chat_enabled
+    categorizadas = categorize_rows(parsed.rows, load_rules(db, include_defaults=not con_ia))
     db.execute(delete(Transaction).where(Transaction.file_id == record.id))
     db.add_all(
         [
@@ -59,13 +65,32 @@ def _import_rows(db: Session, record: UploadedFile, parsed) -> None:
     record.row_count = parsed.row_count
     record.column_mapping = json.dumps(parsed.mapping, ensure_ascii=False)
     record.detected_columns = json.dumps(parsed.columns, ensure_ascii=False)
-    avisos = list(parsed.warnings)
-    sin_categoria = parsed.row_count - categorizadas
-    if categorizadas:
-        avisos.append(f"Se dedujo la categoria de {categorizadas} movimientos por su descripcion.")
-    if sin_categoria > 0 and categorizadas:
-        avisos.append(f"Quedaron {sin_categoria} sin categorizar.")
-    record.notes = " ".join(avisos)[:1000]
+    record.notes = " ".join(parsed.warnings)[:1000]
+
+
+async def _categorize_after_import(db: Session) -> str:
+    """Categoriza lo que quedo pendiente y devuelve un resumen para el aviso."""
+    if categorization_mode(db) != CAT_AI or not get_settings().chat_enabled:
+        pendientes = recategorize(db, only_uncategorized=True)
+        return f". Se categorizaron {pendientes} por reglas." if pendientes else ""
+
+    try:
+        creadas, aplicados = await ai_categorize_pending(db)
+    except OpenRouterError as exc:
+        # Que falle el modelo no puede tumbar la importacion: los
+        # movimientos ya estan guardados. Se cae a las reglas de fabrica.
+        porreglas = recategorize(db, only_uncategorized=True)
+        aviso = f". No se pudo categorizar con IA ({exc})"
+        return aviso + (f"; se usaron las reglas para {porreglas}." if porreglas else ".")
+
+    # Lo que el modelo no supo clasificar se intenta con las reglas.
+    porreglas = recategorize(db, only_uncategorized=True)
+    partes = []
+    if aplicados:
+        partes.append(f"{aplicados} categorizados por el modelo")
+    if porreglas:
+        partes.append(f"{porreglas} por reglas")
+    return f". {' y '.join(partes)}." if partes else ""
 
 
 @router.get("", response_class=HTMLResponse)
@@ -152,9 +177,11 @@ async def upload(
         )
 
     db.commit()
+
+    mensaje = f"Se importaron {record.row_count} filas de '{record.filename}'"
+    mensaje += await _categorize_after_import(db)
     return RedirectResponse(
-        f"/archivos?message=Se importaron {record.row_count} filas de '{record.filename}'",
-        status_code=status.HTTP_303_SEE_OTHER,
+        f"/archivos?message={mensaje}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
@@ -175,7 +202,7 @@ def toggle(
 
 
 @router.post("/{file_id}/remap")
-def remap(
+async def remap(
     request: Request,
     file_id: int,
     db: Session = Depends(get_db),
@@ -234,9 +261,10 @@ def remap(
             f"/archivos?error=No se pudo reimportar: {exc}", status_code=status.HTTP_303_SEE_OTHER
         )
     db.commit()
+    mensaje = f"Reimportado: {record.row_count} filas"
+    mensaje += await _categorize_after_import(db)
     return RedirectResponse(
-        f"/archivos?message=Reimportado: {record.row_count} filas",
-        status_code=status.HTTP_303_SEE_OTHER,
+        f"/archivos?message={mensaje}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 
