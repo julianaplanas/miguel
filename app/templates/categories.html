@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Categorias · {{ settings.app_name }}{% endblock %}
+
+{% block content %}
+<h1>Categorias</h1>
+<p class="subtitle">
+  Un extracto bancario no trae categoria: se deduce de la descripcion.
+  {% if total %}
+  {{ total - uncategorized }} de {{ total }} movimientos categorizados
+  {% if uncategorized %}· quedan <strong>{{ uncategorized }}</strong> sin categorizar{% endif %}.
+  {% endif %}
+</p>
+
+{% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
+{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+<div class="stack">
+  <div class="card">
+    <div class="card-head">
+      <h2>Acciones</h2>
+      <span class="hint">Las reglas se aplican tambien a lo que subas despues</span>
+    </div>
+    <div class="file-actions">
+      <form method="post" action="/categorias/recategorizar">
+        <input type="hidden" name="only_uncategorized" value="1">
+        <button type="submit" class="btn-sm">Categorizar lo que falta</button>
+      </form>
+      <form method="post" action="/categorias/recategorizar">
+        <button type="submit" class="btn-sm">Recategorizar todo</button>
+      </form>
+      {% if chat_enabled %}
+      <form method="post" action="/categorias/sugerir">
+        <button type="submit" class="btn-sm btn-primary">Sugerir con IA</button>
+      </form>
+      {% endif %}
+    </div>
+    <p class="subtitle" style="margin:12px 0 0; font-size:13px">
+      <strong>Recategorizar todo</strong> no toca lo que corregiste a mano ni lo que ya venia
+      con categoria en el archivo.
+      {% if chat_enabled %}
+      <strong>Sugerir con IA</strong> le manda al modelo solo las descripciones distintas que
+      quedan sin categorizar y crea una regla por cada una, para que las revises.
+      {% else %}
+      Para sugerir categorias con IA hace falta configurar <code>OPENROUTER_API_KEY</code>.
+      {% endif %}
+    </p>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Sin categorizar</h2>
+      <span class="hint">Agrupado por descripcion, de mayor a menor importe</span>
+    </div>
+    {% if not pending %}
+      <p class="subtitle" style="margin:0">No queda nada sin categorizar.</p>
+    {% else %}
+    <div class="table-wrap table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Descripcion</th>
+            <th class="num">Veces</th>
+            <th class="num">Total</th>
+            <th>Asignar categoria</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for descripcion, veces, total_importe in pending %}
+          <tr>
+            <td style="white-space:normal">{{ descripcion }}</td>
+            <td class="num">{{ veces }}</td>
+            <td class="num">{{ total_importe }}</td>
+            <td>
+              <form method="post" action="/categorias/regla"
+                    style="display:flex; gap:6px; align-items:center; flex-wrap:wrap">
+                <input type="hidden" name="pattern" value="{{ descripcion }}">
+                <select name="category" aria-label="Categoria para {{ descripcion }}">
+                  {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+                </select>
+                <input type="text" name="category_new" placeholder="u otra nueva"
+                       style="min-width:130px" aria-label="Categoria nueva">
+                <button type="submit" class="btn-sm">Asignar</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Tus reglas</h2>
+      <span class="hint">Si la descripcion contiene el texto, va a esa categoria</span>
+    </div>
+    {% if not rules %}
+      <p class="subtitle" style="margin:0">
+        Todavia no hay reglas propias. La app ya trae unas cuantas de fabrica
+        (Coto, YPF, Netflix, Edenor, farmacias, peajes...), y las que agregues aca les ganan
+        cuando son mas especificas.
+      </p>
+    {% else %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Si la descripcion contiene</th><th>Categoria</th><th>Origen</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for regla in rules %}
+          <tr>
+            <td style="white-space:normal">{{ regla.pattern }}</td>
+            <td>{{ regla.category }}</td>
+            <td>
+              {% if regla.source == 'ai' %}
+                <span class="badge">IA</span>
+              {% else %}
+                <span class="badge">Tuya</span>
+              {% endif %}
+            </td>
+            <td>
+              <form method="post" action="/categorias/regla/{{ regla.id }}/borrar">
+                <button type="submit" class="btn-sm btn-danger">Borrar</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

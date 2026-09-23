@@ -14,6 +14,7 @@ from app import currency as cur
 from app.config import get_settings
 from app.deps import require_user, templates
 from app.preferences import base_currency
+from app.rules import categorize_rows, load_rules
 from app.ingest import FIELDS, parse_file
 from app.db import get_db
 from app.models import Transaction, UploadedFile
@@ -35,6 +36,8 @@ def _safe_suffix(filename: str) -> str:
 
 def _import_rows(db: Session, record: UploadedFile, parsed) -> None:
     base = base_currency(db)
+    # Un extracto bancario no trae categoria: se deduce de la descripcion.
+    categorizadas = categorize_rows(parsed.rows, load_rules(db))
     db.execute(delete(Transaction).where(Transaction.file_id == record.id))
     db.add_all(
         [
@@ -45,6 +48,7 @@ def _import_rows(db: Session, record: UploadedFile, parsed) -> None:
                 amount=row["amount"],
                 currency=(row["currency"] or base).upper(),
                 category=row["category"] or "Sin categoria",
+                category_source=row.get("category_source", ""),
                 person=row["person"] or "Sin asignar",
                 account=row["account"],
                 raw=row["raw"],
@@ -55,7 +59,13 @@ def _import_rows(db: Session, record: UploadedFile, parsed) -> None:
     record.row_count = parsed.row_count
     record.column_mapping = json.dumps(parsed.mapping, ensure_ascii=False)
     record.detected_columns = json.dumps(parsed.columns, ensure_ascii=False)
-    record.notes = " ".join(parsed.warnings)[:1000]
+    avisos = list(parsed.warnings)
+    sin_categoria = parsed.row_count - categorizadas
+    if categorizadas:
+        avisos.append(f"Se dedujo la categoria de {categorizadas} movimientos por su descripcion.")
+    if sin_categoria > 0 and categorizadas:
+        avisos.append(f"Quedaron {sin_categoria} sin categorizar.")
+    record.notes = " ".join(avisos)[:1000]
 
 
 @router.get("", response_class=HTMLResponse)

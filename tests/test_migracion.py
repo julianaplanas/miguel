@@ -42,3 +42,39 @@ def test_es_idempotente(tmp_path):
     engine = create_engine(f"sqlite:///{path}")
     assert _ensure_columns(engine) == ["exchange_rates.source"]
     assert _ensure_columns(engine) == []
+
+
+def _transacciones_anteriores(path) -> None:
+    con = sqlite3.connect(path)
+    con.execute(
+        "CREATE TABLE transactions ("
+        " id INTEGER PRIMARY KEY, file_id INTEGER, date DATE, description VARCHAR(512),"
+        " amount FLOAT, currency VARCHAR(8), category VARCHAR(160), person VARCHAR(160),"
+        " account VARCHAR(160), raw TEXT)"
+    )
+    con.executemany(
+        "INSERT INTO transactions (id, description, amount, category) VALUES (?,?,?,?)",
+        [
+            (1, "COTO DIGITAL", 100.0, "Sin categoria"),
+            (2, "Cena", 200.0, "Restaurantes"),
+        ],
+    )
+    con.commit()
+    con.close()
+
+
+def test_categoria_del_archivo_se_protege_y_la_vacia_no(tmp_path):
+    path = tmp_path / "app.db"
+    _transacciones_anteriores(path)
+    engine = create_engine(f"sqlite:///{path}")
+
+    assert _ensure_columns(engine) == ["transactions.category_source"]
+
+    with engine.connect() as conn:
+        filas = dict(
+            conn.execute(text("SELECT id, category_source FROM transactions")).all()
+        )
+    # La que ya tenia categoria queda protegida del recategorizado...
+    assert filas[2] == "file"
+    # ...y la que estaba sin categorizar queda libre para que lo toque.
+    assert filas[1] == ""

@@ -5,6 +5,7 @@
   const vacio = document.getElementById('estado-vacio');
   const charts = {};
   let ultimoResumen = null;
+  let categoriasConocidas = [];
   let offset = 0;
   const PAGINA = 100;
 
@@ -102,12 +103,126 @@
     });
   }
 
+  /* La categoria se edita en la misma celda: un click la convierte en un
+     selector con las categorias conocidas. */
+  function celdaCategoria(r) {
+    const td = document.createElement('td');
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.className = 'cat-edit';
+    boton.textContent = r.categoria;
+    if (r.categoria === 'Sin categoria') boton.classList.add('vacia');
+    boton.title = 'Cambiar categoria';
+    boton.addEventListener('click', function () { abrirEditor(td, r); });
+    td.appendChild(boton);
+    return td;
+  }
+
+  function abrirEditor(td, r) {
+    td.innerHTML = '';
+    const caja = document.createElement('div');
+    caja.className = 'cat-editor';
+
+    const select = document.createElement('select');
+    categoriasConocidas.forEach(function (c) {
+      const op = document.createElement('option');
+      op.value = c;
+      op.textContent = c;
+      op.selected = c === r.categoria;
+      select.appendChild(op);
+    });
+    const nueva = document.createElement('option');
+    nueva.value = '__nueva__';
+    nueva.textContent = '+ Nueva...';
+    select.appendChild(nueva);
+
+    const texto = document.createElement('input');
+    texto.type = 'text';
+    texto.placeholder = 'Nombre de la categoria';
+    texto.hidden = true;
+    select.addEventListener('change', function () {
+      texto.hidden = select.value !== '__nueva__';
+      if (!texto.hidden) texto.focus();
+    });
+
+    const todos = document.createElement('label');
+    todos.className = 'cat-todos';
+    const check = document.createElement('input');
+    check.type = 'checkbox';
+    check.checked = true;
+    todos.appendChild(check);
+    todos.appendChild(document.createTextNode(' Aplicar a todos los que digan lo mismo'));
+
+    const guardar = document.createElement('button');
+    guardar.type = 'button';
+    guardar.className = 'btn-sm btn-primary';
+    guardar.textContent = 'Guardar';
+
+    const cancelar = document.createElement('button');
+    cancelar.type = 'button';
+    cancelar.className = 'btn-sm';
+    cancelar.textContent = 'Cancelar';
+    cancelar.addEventListener('click', function () {
+      td.replaceWith(celdaCategoria(r));
+    });
+
+    guardar.addEventListener('click', async function () {
+      const categoria = select.value === '__nueva__' ? texto.value.trim() : select.value;
+      if (!categoria) { texto.focus(); return; }
+      guardar.disabled = true;
+      try {
+        const res = await fetch('/api/transacciones/' + r.id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({
+            categoria: categoria,
+            aplicar_a_similares: check.checked,
+            patron: r.descripcion
+          })
+        });
+        if (!res.ok) { throw new Error((await res.json()).detail || res.status); }
+        const data = await res.json();
+        if (categoriasConocidas.indexOf(categoria) === -1) categoriasConocidas.push(categoria);
+        avisar(data.aplicados > 1
+          ? categoria + ': se aplico a ' + data.aplicados + ' movimientos.'
+          : 'Categoria actualizada.');
+        cargar();
+      } catch (e) {
+        avisar('No se pudo guardar: ' + e.message, true);
+        guardar.disabled = false;
+      }
+    });
+
+    caja.appendChild(select);
+    caja.appendChild(texto);
+    caja.appendChild(guardar);
+    caja.appendChild(cancelar);
+    caja.appendChild(todos);
+    td.appendChild(caja);
+    select.focus();
+  }
+
+  function avisar(texto, esError) {
+    const caja = document.getElementById('aviso-categoria');
+    caja.textContent = texto;
+    caja.className = 'flash ' + (esError ? 'err' : 'ok');
+    caja.hidden = false;
+    clearTimeout(avisar._t);
+    avisar._t = setTimeout(function () { caja.hidden = true; }, 6000);
+  }
+
   function pintarMovimientos(data, append) {
     const tbody = document.getElementById('tabla-movimientos');
     if (!append) tbody.innerHTML = '';
     data.rows.forEach(function (r) {
       const tr = document.createElement('tr');
-      [r.fecha, r.descripcion || '-', r.categoria, r.persona, r.archivo].forEach(function (value) {
+      [r.fecha, r.descripcion || '-'].forEach(function (value) {
+        const td = document.createElement('td');
+        td.textContent = value;
+        tr.appendChild(td);
+      });
+      tr.appendChild(celdaCategoria(r));
+      [r.persona, r.archivo].forEach(function (value) {
         const td = document.createElement('td');
         td.textContent = value;
         tr.appendChild(td);
@@ -249,6 +364,10 @@
   document.addEventListener('tema-cambiado', function () {
     if (ultimoResumen) pintarGraficos(ultimoResumen);
   });
+
+  fetch('/api/categorias')
+    .then(function (r) { return r.ok ? r.json() : { categorias: [] }; })
+    .then(function (d) { categoriasConocidas = d.categorias || []; });
 
   cargar();
 })();

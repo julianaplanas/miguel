@@ -16,10 +16,37 @@ Pensada para desplegarse en **Railway** con un par de variables de entorno.
 | **/archivos** | Subir CSV/TSV/Excel/PDF, activar o desactivar cada archivo, corregir el mapeo de columnas, descargar o borrar. |
 | **/** (dashboard) | KPIs, evolución mensual, gasto por categoría, por persona, cruce persona × categoría, gasto por día de la semana, mayores gastos, tabla de movimientos, exportación a CSV. |
 | **/chat** | Preguntas en lenguaje natural sobre los datos activos. El modelo puede devolver gráficos que se dibujan en la conversación. |
+| **/categorias** | Reglas de categorización, lo que quedó sin categorizar y sugerencias del modelo. |
 | **/ajustes** | Moneda base, modo de conversión y tipos de cambio (de una API o a mano). |
 
 Solo los archivos marcados como **activos** entran en el dashboard y en el chat,
 así que puedes tener varios exports subidos y combinarlos o aislarlos sin borrar nada.
+
+## Categorías
+
+Un extracto bancario no trae categoría: trae `COMPRA COTO DIGITAL` y poco más.
+Así que se deduce de la descripción, con reglas de texto simples y explicables.
+
+La app trae **reglas de fábrica pensadas para Argentina**: cadenas de
+supermercado, estaciones de servicio, peajes, prepagas y farmacias, servicios
+(Edenor, Metrogas, Aysa, telefonía), suscripciones, impuestos (AFIP, ARBA, ABL,
+ley 25413), comisiones bancarias, cajeros y sueldos.
+
+Tres formas de completar lo que falte, de menos a más automática:
+
+1. **A mano en la tabla** — en el dashboard, un click en la categoría la
+   convierte en un selector. Al guardar podés marcar *"aplicar a todos los que
+   digan lo mismo"*, que además crea una regla para los archivos futuros.
+2. **Desde /categorias** — lista lo que quedó sin categorizar agrupado por
+   descripción y ordenado por importe, para asignar en bloque lo que más pesa.
+3. **Sugerir con IA** — manda al modelo solo las descripciones distintas que
+   ninguna regla reconoció y crea una regla por cada una, para que las revises.
+   Necesita `OPENROUTER_API_KEY`.
+
+Dos garantías: **lo que corregís a mano no se vuelve a pisar** al recategorizar,
+y **si el archivo trae categoría, manda el archivo**. Entre reglas gana la más
+específica, salvo unas pocas que tienen prioridad explícita porque la longitud
+engaña: `TRANSFERENCIA RECIBIDA SUELDO` es un ingreso, no una transferencia.
 
 ## Resúmenes en PDF
 
@@ -192,15 +219,17 @@ app/
   security.py     login de usuario único con cookie firmada
   ingest.py       lectura de CSV/Excel y normalización a transacciones
   analytics.py    agregaciones (por categoría, persona, mes, cruce…) y conversión de moneda
+  categorize.py   reglas de categorización y su orden de aplicación
+  rules.py        aplicar reglas a los movimientos guardados
   currency.py     detección y normalización de monedas (ARS, USD, `US$`, `U$S`…)
   rates.py        cotizaciones del día e históricas (dolarapi, er-api, argentinadatos, frankfurter)
   pdf_import.py   lectura de resúmenes bancarios en PDF
   preferences.py  preferencias guardadas en la base (moneda base, modo de conversión)
   llm.py          cliente de OpenRouter y contexto de datos del chat
-  routers/        auth, archivos, dashboard, chat, ajustes
+  routers/        auth, archivos, dashboard, chat, categorias, ajustes
   templates/      Jinja2
   static/         CSS, JS de gráficos y Chart.js (incluido en el repo)
-tests/            pruebas de ingesta, monedas y de la app completa
+tests/            pruebas de ingesta, PDF, monedas, categorías y de la app completa
 ```
 
 ## Notas

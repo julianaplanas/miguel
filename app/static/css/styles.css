@@ -282,3 +282,22 @@ details.mapping summary { cursor: pointer; font-size: 13px; color: var(--text-se
   .stat .value { font-size: 22px; }
   .nav a { padding: 6px 10px; }
 }
+
+/* ---------- Edicion de categoria en la tabla ---------- */
+.cat-edit {
+  border: 1px dashed var(--axis);
+  background: transparent;
+  padding: 2px 8px;
+  font-size: 13px;
+  border-radius: 6px;
+  color: var(--text-primary);
+}
+.cat-edit:hover { background: var(--surface-2); border-style: solid; }
+.cat-edit.vacia { color: var(--text-muted); font-style: italic; }
+.cat-editor { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cat-editor select, .cat-editor input[type="text"] { min-width: 150px; padding: 4px 8px; font-size: 13px; }
+.cat-todos {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--text-secondary); white-space: nowrap;
+}
+.cat-todos input { min-width: auto; }

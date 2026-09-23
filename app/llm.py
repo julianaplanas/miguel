@@ -9,6 +9,7 @@ import httpx
 from sqlalchemy.orm import Session
 
 from app.analytics import Filters, build_summary, fetch_rows
+from app.categorize import SUGGESTED
 from app.config import get_settings
 from app.preferences import base_currency
 
@@ -156,3 +157,54 @@ async def list_models(limit: int = 60) -> list[dict[str, str]]:
         models.append({"id": model_id, "name": item.get("name") or model_id})
     models.sort(key=lambda m: m["id"])
     return models[:limit] if limit else models
+
+
+CATEGORIZE_PROMPT = """Sos un asistente que clasifica gastos bancarios argentinos.
+
+Te paso descripciones tal como las imprime un resumen de banco o tarjeta
+(abreviadas, en mayusculas, con codigos). Para cada una, decidi la categoria.
+
+Categorias preferidas: {categorias}
+
+Reglas:
+- Usa una de las categorias preferidas siempre que encaje. Si ninguna sirve,
+  invent una corta y clara.
+- Si una descripcion es demasiado generica para saberlo (por ejemplo un
+  numero de operacion suelto), devolve "Sin categoria". No adivines.
+- Responde SOLO con un objeto JSON {{"descripcion": "categoria", ...}}, sin
+  texto alrededor ni bloques de codigo.
+"""
+
+
+def _parse_json_object(texto: str) -> dict[str, str]:
+    """Saca el objeto JSON de la respuesta, tolerando bloques de codigo."""
+    limpio = texto.strip()
+    if limpio.startswith("```"):
+        limpio = limpio.split("```")[1] if "```" in limpio[3:] else limpio[3:]
+        limpio = limpio.split("\n", 1)[-1] if limpio.lower().startswith("json") else limpio
+    inicio, fin = limpio.find("{"), limpio.rfind("}")
+    if inicio == -1 or fin == -1:
+        raise OpenRouterError("El modelo no devolvio un JSON reconocible.")
+    try:
+        datos = json.loads(limpio[inicio : fin + 1])
+    except ValueError as exc:
+        raise OpenRouterError("El modelo devolvio un JSON invalido.") from exc
+    if not isinstance(datos, dict):
+        raise OpenRouterError("El modelo no devolvio un objeto JSON.")
+    return {str(k): str(v) for k, v in datos.items()}
+
+
+async def suggest_categories(descriptions: list[str], model: str | None = None) -> dict[str, str]:
+    """Pide al modelo una categoria por descripcion."""
+    if not descriptions:
+        return {}
+    system = CATEGORIZE_PROMPT.format(categorias=", ".join(SUGGESTED))
+    usuario = "\n".join(f"- {d}" for d in descriptions[:200])
+    respuesta = await complete(
+        [
+            {"role": "system", "content": system},
+            {"role": "user", "content": usuario},
+        ],
+        model=model,
+    )
+    return _parse_json_object(respuesta)

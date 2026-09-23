@@ -333,6 +333,7 @@ def parse_file(
                 "amount": round(amount, 2),
                 "description": _clean_text(row.get(mapping["description"])) if "description" in mapping else "",
                 "category": _clean_text(row.get(mapping["category"]), "Sin categoria")[:160] if "category" in mapping else "Sin categoria",
+                "category_source": "",
                 "person": (
                     _clean_text(row.get(mapping["person"]), default_person or "Sin asignar")[:160]
                     if "person" in mapping

@@ -26,11 +26,20 @@ def get_db() -> Iterator[Session]:
 
 # Columnas anadidas despues de la primera version. create_all() solo crea
 # tablas nuevas, no columnas nuevas, asi que estas se agregan a mano.
-# (tabla, columna) -> (DDL, valor con el que rellenar las filas existentes).
-# La columna se agrega como NULL y se rellena, de modo que una base migrada
-# queda igual que una creada desde cero.
+# (tabla, columna) -> (DDL, expresion SQL para rellenar las filas que ya
+# existen). La columna se agrega como NULL y se rellena, de modo que una
+# base migrada queda igual que una creada desde cero.
 _ADDED_COLUMNS: dict[str, dict[str, tuple[str, str]]] = {
-    "exchange_rates": {"source": ("VARCHAR(64)", "manual")},
+    "exchange_rates": {"source": ("VARCHAR(64)", "'manual'")},
+    # Una categoria que venia del archivo se respeta ('file'); las que
+    # quedaron sin categorizar se marcan vacias para que el recategorizado
+    # si pueda tocarlas.
+    "transactions": {
+        "category_source": (
+            "VARCHAR(16)",
+            "CASE WHEN category IS NULL OR category = 'Sin categoria' THEN '' ELSE 'file' END",
+        )
+    },
 }
 
 
@@ -49,8 +58,7 @@ def _ensure_columns(target=None) -> list[str]:
             with target.begin() as conn:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
                 conn.execute(
-                    text(f"UPDATE {table} SET {name} = :valor WHERE {name} IS NULL"),
-                    {"valor": relleno},
+                    text(f"UPDATE {table} SET {name} = {relleno} WHERE {name} IS NULL")
                 )
             creadas.append(f"{table}.{name}")
     return creadas

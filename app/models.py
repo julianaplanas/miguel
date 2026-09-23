@@ -59,6 +59,9 @@ class Transaction(Base):
     amount: Mapped[float] = mapped_column(Float, default=0.0)
     currency: Mapped[str] = mapped_column(String(8), default="")
     category: Mapped[str] = mapped_column(String(160), default="Sin categoria", index=True)
+    # De donde salio la categoria: file / rule / ai / manual. Lo que el
+    # usuario corrigio a mano no se vuelve a pisar al recategorizar.
+    category_source: Mapped[str] = mapped_column(String(16), default="")
     person: Mapped[str] = mapped_column(String(160), default="Sin asignar", index=True)
     account: Mapped[str] = mapped_column(String(160), default="")
     raw: Mapped[str] = mapped_column(Text, default="{}")
@@ -126,3 +129,16 @@ class RateHistory(Base):
     date: Mapped[dt.date] = mapped_column(Date, primary_key=True)
     rate: Mapped[float] = mapped_column(Float, default=1.0)
     source: Mapped[str] = mapped_column(String(64), default="")
+
+
+class CategoryRule(Base):
+    """Regla de categorizacion: si la descripcion contiene X, es de tal categoria."""
+
+    __tablename__ = "category_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    pattern: Mapped[str] = mapped_column(String(200), index=True)
+    category: Mapped[str] = mapped_column(String(160))
+    # "manual" (la escribio el usuario) o "ai" (la sugirio el modelo).
+    source: Mapped[str] = mapped_column(String(16), default="manual")
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
