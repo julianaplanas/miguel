@@ -6,8 +6,8 @@
 <p class="subtitle">Sube CSV, TSV, Excel o PDF (resumenes de banco y tarjeta). Solo los archivos <strong>activos</strong> cuentan en el dashboard y en el chat.</p>
 
 {% if storage_warning %}<div class="flash err"><strong>Los archivos no se van a conservar.</strong> {{ storage_warning }}</div>{% endif %}
-{% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
-{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+{% if message %}<div class="flash ok" data-toast>{{ message }}</div>{% endif %}
+{% if error %}<div class="flash err" data-toast>{{ error }}</div>{% endif %}
 
 <form class="card" method="post" action="/archivos/upload" enctype="multipart/form-data" style="margin-bottom:20px">
   <div class="card-head">
@@ -69,7 +69,10 @@
         </form>
         <a class="btn btn-sm" href="/archivos/{{ f.id }}/descargar">Descargar</a>
         <form method="post" action="/archivos/{{ f.id }}/delete"
-              onsubmit="return confirm('Eliminar {{ f.filename }} y sus movimientos?');">
+              data-confirmar-titulo="Eliminar archivo"
+              data-confirmar="Se borra {{ f.filename }} y sus {{ f.row_count }} movimientos. No se puede deshacer."
+              data-confirmar-aceptar="Eliminar"
+              data-confirmar-peligroso>
           <button type="submit" class="btn-sm btn-danger">Eliminar</button>
         </form>
       </div>

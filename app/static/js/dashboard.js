@@ -199,16 +199,13 @@
     caja.appendChild(cancelar);
     caja.appendChild(todos);
     td.appendChild(caja);
-    select.focus();
+    UI.mejorar(caja);
+    const boton = caja.querySelector('.ui-select-boton');
+    (boton || select).focus();
   }
 
   function avisar(texto, esError) {
-    const caja = document.getElementById('aviso-categoria');
-    caja.textContent = texto;
-    caja.className = 'flash ' + (esError ? 'err' : 'ok');
-    caja.hidden = false;
-    clearTimeout(avisar._t);
-    avisar._t = setTimeout(function () { caja.hidden = true; }, 6000);
+    UI.toast(texto, esError ? 'error' : 'ok');
   }
 
   function pintarMovimientos(data, append) {
@@ -346,13 +343,22 @@
   });
 
   document.getElementById('limpiar').addEventListener('click', function () {
-    document.getElementById('desde').value = '';
-    document.getElementById('hasta').value = '';
     ['persona', 'categoria'].forEach(function (id) {
-      Array.from(document.getElementById(id).options).forEach(function (o) { o.selected = false; });
+      const select = document.getElementById(id);
+      Array.from(select.options).forEach(function (o) { o.selected = false; });
+      // El control disenado se entera por el evento, no por el cambio directo.
+      select.dispatchEvent(new Event('change', { bubbles: true }));
     });
     const moneda = document.getElementById('moneda');
-    if (moneda) moneda.value = '';
+    if (moneda) {
+      moneda.value = '';
+      moneda.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    ['desde', 'hasta'].forEach(function (id) {
+      const campo = document.getElementById(id);
+      campo.value = '';
+      campo.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     cargar();
   });
 

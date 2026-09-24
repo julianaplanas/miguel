@@ -284,6 +284,21 @@ volumen montado, cuántos archivos hay y si se puede escribir. Si los datos qued
 fuera del volumen, la app lo dice ahí y también en la pantalla de Archivos, en vez
 de dejarte descubrirlo cuando desaparecen.
 
+## Interfaz
+
+Los controles del sistema están reemplazados por componentes propios, en
+`app/static/js/ui.js` y sus estilos: avisos apilados que se van solos,
+confirmaciones en diálogo (en vez de `confirm()`), desplegables con búsqueda al
+escribir y selección múltiple con checks, campo de archivo con arrastrar y
+soltar, y un calendario en `dd/mm/aaaa` — el input nativo muestra el formato del
+idioma del navegador, que en un Chrome en inglés es `mm/dd/aaaa`.
+
+Todo por **mejora progresiva**: el control nativo sigue en el DOM, oculto, y es
+la fuente de verdad. El diseñado se dibuja encima y se sincroniza. Así los
+formularios se envían igual, el JS que lee `select.selectedOptions` no cambia, y
+si el archivo no carga la app queda fea pero usable. Para reflejar un cambio
+hecho por código, basta con disparar un `change` sobre el control nativo.
+
 ## Notas
 
 - **Seguridad**: es un login de usuario único pensado para uso personal. La

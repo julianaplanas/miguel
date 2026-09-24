@@ -12,8 +12,8 @@
   {%- endif %}
 </p>
 
-{% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
-{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+{% if message %}<div class="flash ok" data-toast>{{ message }}</div>{% endif %}
+{% if error %}<div class="flash err" data-toast>{{ error }}</div>{% endif %}
 
 <div class="flash {{ 'ok' if mode_is_ai else 'err' }}">
   {% if mode_is_ai %}
@@ -167,7 +167,11 @@
               {% endif %}
             </td>
             <td>
-              <form method="post" action="/categorias/regla/{{ regla.id }}/borrar">
+              <form method="post" action="/categorias/regla/{{ regla.id }}/borrar"
+                    data-confirmar-titulo="Borrar regla"
+                    data-confirmar="Deja de aplicarse a los archivos que subas despues. Los movimientos ya categorizados no cambian."
+                    data-confirmar-aceptar="Borrar"
+                    data-confirmar-peligroso>
                 <button type="submit" class="btn-sm btn-danger">Borrar</button>
               </form>
             </td>

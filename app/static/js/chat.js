@@ -215,7 +215,13 @@
   });
 
   document.getElementById('limpiar-chat').addEventListener('click', async function () {
-    if (!confirm('Borrar todo el historial del chat?')) return;
+    const acepta = await UI.confirmar({
+      titulo: 'Borrar historial',
+      mensaje: 'Se borra toda la conversacion. Los datos y los archivos no se tocan.',
+      aceptar: 'Borrar',
+      peligroso: true
+    });
+    if (!acepta) return;
     await fetch('/api/chat/limpiar', { method: 'POST', headers: { 'Accept': 'application/json' } });
     window.location.reload();
   });

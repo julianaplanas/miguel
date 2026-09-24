@@ -5,8 +5,8 @@
 <h1>Ajustes</h1>
 <p class="subtitle">Moneda base y tipos de cambio.</p>
 
-{% if message %}<div class="flash ok">{{ message }}</div>{% endif %}
-{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+{% if message %}<div class="flash ok" data-toast>{{ message }}</div>{% endif %}
+{% if error %}<div class="flash err" data-toast>{{ error }}</div>{% endif %}
 
 {% if missing %}
 <div class="flash err">
