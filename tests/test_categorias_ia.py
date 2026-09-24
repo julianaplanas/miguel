@@ -78,7 +78,7 @@ def auth(modelo):
 def _subir(client, nombre: str, csv: str):
     return client.post(
         "/archivos/upload",
-        files={"file": (nombre, io.BytesIO(csv.encode("utf-8")), "text/csv")},
+        files={"files": (nombre, io.BytesIO(csv.encode("utf-8")), "text/csv")},
         data={"default_person": "", "default_currency": "ARS"},
         follow_redirects=False,
     )

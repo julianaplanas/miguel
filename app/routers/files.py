@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import uuid
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
@@ -147,56 +148,86 @@ async def upload(
     request: Request,
     db: Session = Depends(get_db),
     _: str = Depends(require_user),
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
     default_person: str = Form(""),
     default_currency: str = Form(""),
 ):
+    """Importa uno o varios archivos en una sola pasada.
+
+    Cada archivo se procesa por separado y se confirma en cuanto sale bien,
+    asi que uno que falle no se lleva puestos los demas. Las categorias se
+    piden una sola vez al final, para no hacer una llamada por archivo.
+    """
     settings = get_settings()
-    suffix = _safe_suffix(file.filename or "")
-    content = await file.read()
-    if len(content) > settings.max_upload_mb * 1024 * 1024:
+    persona = default_person.strip()
+    moneda = default_currency.strip() or base_currency(db)
+
+    importados: list[UploadedFile] = []
+    fallos: list[str] = []
+
+    for archivo in files:
+        nombre = archivo.filename or "sin nombre"
+        stored_path: Path | None = None
+        try:
+            suffix = _safe_suffix(nombre)
+            content = await archivo.read()
+            if not content:
+                raise ValueError("el archivo esta vacio")
+            if len(content) > settings.max_upload_mb * 1024 * 1024:
+                raise ValueError(f"supera el limite de {settings.max_upload_mb} MB")
+
+            stored_path = settings.upload_dir / f"{uuid.uuid4().hex}{suffix}"
+            stored_path.write_bytes(content)
+
+            record = UploadedFile(
+                filename=nombre,
+                stored_path=str(stored_path),
+                content_type=archivo.content_type or "",
+                size_bytes=len(content),
+                is_active=True,
+                default_person=persona,
+            )
+            db.add(record)
+            db.flush()
+
+            parsed = parse_file(
+                stored_path,
+                default_person=persona,
+                default_currency=moneda,
+                raw=content,
+            )
+            _import_rows(db, record, parsed)
+            db.commit()
+            importados.append(record)
+        except HTTPException as exc:
+            db.rollback()
+            if stored_path:
+                stored_path.unlink(missing_ok=True)
+            fallos.append(f"{nombre} ({exc.detail})")
+        except Exception as exc:  # noqa: BLE001 - el motivo se le muestra al usuario
+            db.rollback()
+            if stored_path:
+                stored_path.unlink(missing_ok=True)
+            fallos.append(f"{nombre} ({exc})")
+
+    if not importados:
+        detalle = "; ".join(fallos) or "no se recibio ningun archivo"
         return RedirectResponse(
-            f"/archivos?error=El archivo supera el limite de {settings.max_upload_mb} MB",
+            f"/archivos?error={quote('No se pudo importar: ' + detalle)}",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
-    stored_name = f"{uuid.uuid4().hex}{suffix}"
-    stored_path = settings.upload_dir / stored_name
-    stored_path.write_bytes(content)
-
-    record = UploadedFile(
-        filename=file.filename or stored_name,
-        stored_path=str(stored_path),
-        content_type=file.content_type or "",
-        size_bytes=len(content),
-        is_active=True,
-        default_person=default_person.strip(),
-    )
-    db.add(record)
-    db.flush()
-
-    try:
-        parsed = parse_file(
-            stored_path,
-            default_person=default_person.strip(),
-            default_currency=default_currency.strip() or base_currency(db),
-            raw=content,
-        )
-        _import_rows(db, record, parsed)
-    except Exception as exc:  # noqa: BLE001 - mostramos el motivo al usuario
-        db.rollback()
-        stored_path.unlink(missing_ok=True)
-        return RedirectResponse(
-            f"/archivos?error=No se pudo procesar '{file.filename}': {exc}",
-            status_code=status.HTTP_303_SEE_OTHER,
-        )
-
-    db.commit()
-
-    mensaje = f"Se importaron {record.row_count} filas de '{record.filename}'"
+    movimientos = sum(r.row_count for r in importados)
+    if len(importados) == 1:
+        mensaje = f"Se importaron {movimientos} filas de '{importados[0].filename}'"
+    else:
+        mensaje = f"Se importaron {len(importados)} archivos ({movimientos} movimientos)"
     mensaje += await _categorize_after_import(db)
+    if fallos:
+        mensaje += " No se pudieron importar: " + "; ".join(fallos) + "."
+
     return RedirectResponse(
-        f"/archivos?message={mensaje}", status_code=status.HTTP_303_SEE_OTHER
+        f"/archivos?message={quote(mensaje)}", status_code=status.HTTP_303_SEE_OTHER
     )
 
 

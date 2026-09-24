@@ -106,8 +106,10 @@ el CSV desde el homebanking, que siempre es más fiable.
 
 ## Formato de los archivos
 
-No hay un formato obligatorio: al subir un archivo se detectan las columnas por
-su nombre (en español o inglés) y se normalizan fechas e importes.
+Se pueden subir **varios archivos de una vez** (cada uno queda como una entrada
+propia, activable por separado; si uno falla, los demás se importan igual). No
+hay un formato obligatorio: se detectan las columnas por su nombre (en español o
+inglés) y se normalizan fechas e importes.
 
 - **Fecha**: `fecha`, `fecha operacion`, `date`, `transaction date`…
 - **Importe**: `importe`, `monto`, `cantidad`, `amount`, `total`…

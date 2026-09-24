@@ -399,7 +399,8 @@
     zona.className = 'ui-archivo';
     zona.tabIndex = 0;
     zona.setAttribute('role', 'button');
-    zona.setAttribute('aria-label', 'Elegir archivo');
+    const varios = input.multiple;
+    zona.setAttribute('aria-label', varios ? 'Elegir archivos' : 'Elegir archivo');
 
     const icono = document.createElement('span');
     icono.className = 'ui-archivo-icono';
@@ -421,16 +422,33 @@
     input.classList.add('ui-nativo-oculto');
     input.parentNode.insertBefore(zona, input);
 
+    function kb(bytes) {
+      return bytes >= 1024 * 1024
+        ? (bytes / 1024 / 1024).toFixed(1) + ' MB'
+        : (bytes / 1024).toFixed(1) + ' KB';
+    }
+
     function pintar() {
-      const archivo = input.files && input.files[0];
-      if (archivo) {
-        zona.classList.add('con-archivo');
-        principal.textContent = archivo.name;
-        secundario.textContent = (archivo.size / 1024).toFixed(1) + ' KB · click para cambiar';
-      } else {
+      const elegidos = Array.from((input.files || []));
+      if (!elegidos.length) {
         zona.classList.remove('con-archivo');
-        principal.textContent = 'Elegi un archivo';
-        secundario.textContent = 'o arrastralo aca';
+        principal.textContent = varios ? 'Elegi uno o varios archivos' : 'Elegi un archivo';
+        secundario.textContent = varios ? 'o arrastralos aca' : 'o arrastralo aca';
+        return;
+      }
+      zona.classList.add('con-archivo');
+      const peso = elegidos.reduce((total, f) => total + f.size, 0);
+      if (elegidos.length === 1) {
+        principal.textContent = elegidos[0].name;
+        secundario.textContent = kb(peso) + ' · click para cambiar';
+      } else {
+        // Con muchos archivos la lista entera no entra: se nombran los
+        // primeros y se cuenta el resto.
+        const muestra = elegidos.slice(0, 3).map((f) => f.name).join(', ');
+        const resto = elegidos.length - 3;
+        principal.textContent = elegidos.length + ' archivos';
+        secundario.textContent =
+          muestra + (resto > 0 ? ' y ' + resto + ' mas' : '') + ' · ' + kb(peso);
       }
     }
 

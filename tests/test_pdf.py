@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 import io
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -85,7 +86,7 @@ def test_ingesta_completa_desde_pdf(tmp_path):
 def test_subir_pdf_por_la_ui(auth):
     response = auth.post(
         "/archivos/upload",
-        files={"file": ("extracto.pdf", io.BytesIO(extracto_con_saldo()), "application/pdf")},
+        files={"files": ("extracto.pdf", io.BytesIO(extracto_con_saldo()), "application/pdf")},
         data={"default_person": "Ana", "default_currency": "ARS"},
         follow_redirects=False,
     )
@@ -102,7 +103,7 @@ def test_subir_pdf_por_la_ui(auth):
 def test_pdf_de_tarjeta_mezcla_monedas(auth):
     response = auth.post(
         "/archivos/upload",
-        files={"file": ("tarjeta.pdf", io.BytesIO(resumen_tarjeta_dolares()), "application/pdf")},
+        files={"files": ("tarjeta.pdf", io.BytesIO(resumen_tarjeta_dolares()), "application/pdf")},
         data={"default_person": "Ana", "default_currency": "ARS"},
         follow_redirects=False,
     )
@@ -114,10 +115,14 @@ def test_pdf_de_tarjeta_mezcla_monedas(auth):
 def test_formato_no_soportado(auth):
     response = auth.post(
         "/archivos/upload",
-        files={"file": ("foto.png", io.BytesIO(b"x"), "image/png")},
+        files={"files": ("foto.png", io.BytesIO(b"x"), "image/png")},
         data={"default_person": "", "default_currency": "ARS"},
         follow_redirects=False,
     )
-    # La subida viene de un formulario, asi que el error se muestra como pagina.
-    assert response.status_code == 400
-    assert "PDF" in response.text
+    # La subida viene de un formulario: el error vuelve en el redirect, no
+    # como pagina de error, para que se vea junto al formulario.
+    assert response.status_code == 303
+    destino = unquote(response.headers["location"])
+    assert "error=" in destino
+    assert "foto.png" in destino
+    assert "PDF" in destino

@@ -11,13 +11,14 @@
 
 <form class="card" method="post" action="/archivos/upload" enctype="multipart/form-data" style="margin-bottom:20px">
   <div class="card-head">
-    <h2>Subir archivo</h2>
-    <span class="hint">Se detectan solas las columnas de fecha, importe, categoria y persona</span>
+    <h2>Subir archivos</h2>
+    <span class="hint">Puedes elegir varios a la vez; se detectan solas las columnas de fecha, importe, categoria y persona</span>
   </div>
   <div class="filters" style="margin:0; border:0; padding:0; background:transparent">
     <div class="field">
-      <label for="file">Archivo</label>
-      <input id="file" type="file" name="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.pdf" required>
+      <label for="file">Archivos</label>
+      <input id="file" type="file" name="files" multiple
+             accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.pdf" required>
     </div>
     <div class="field">
       <label for="default_person">Persona por defecto (opcional)</label>

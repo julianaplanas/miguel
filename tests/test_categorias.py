@@ -37,7 +37,7 @@ def auth():
                     follow_redirects=False)
         client.post(
             "/archivos/upload",
-            files={"file": ("extracto.csv", io.BytesIO(CSV.encode("utf-8")), "text/csv")},
+            files={"files": ("extracto.csv", io.BytesIO(CSV.encode("utf-8")), "text/csv")},
             data={"default_person": "", "default_currency": "ARS"},
             follow_redirects=False,
         )
@@ -106,7 +106,7 @@ def test_la_categoria_del_archivo_manda(auth):
     )
     auth.post(
         "/archivos/upload",
-        files={"file": ("con-categoria.csv", io.BytesIO(csv.encode("utf-8")), "text/csv")},
+        files={"files": ("con-categoria.csv", io.BytesIO(csv.encode("utf-8")), "text/csv")},
         data={"default_person": "", "default_currency": "ARS"},
         follow_redirects=False,
     )
@@ -133,7 +133,7 @@ def test_aplicar_a_todos_los_que_digan_lo_mismo(auth):
     csv = "fecha,concepto,persona,importe\n2026-03-20,QWERTY SRL 00012345,Ana,3000\n"
     auth.post(
         "/archivos/upload",
-        files={"file": ("mas.csv", io.BytesIO(csv.encode("utf-8")), "text/csv")},
+        files={"files": ("mas.csv", io.BytesIO(csv.encode("utf-8")), "text/csv")},
         data={"default_person": "", "default_currency": "ARS"},
         follow_redirects=False,
     )
@@ -191,7 +191,7 @@ def test_las_reglas_propias_valen_para_archivos_futuros(auth):
     csv = "fecha,concepto,persona,importe\n2026-05-01,QWERTY SRL 00099999,Ana,5000\n"
     auth.post(
         "/archivos/upload",
-        files={"file": ("nuevo.csv", io.BytesIO(csv.encode("utf-8")), "text/csv")},
+        files={"files": ("nuevo.csv", io.BytesIO(csv.encode("utf-8")), "text/csv")},
         data={"default_person": "", "default_currency": "ARS"},
         follow_redirects=False,
     )

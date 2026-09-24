@@ -61,7 +61,7 @@ def test_healthz(client):
 def test_subida_y_resumen(auth):
     response = auth.post(
         "/archivos/upload",
-        files={"file": ("gastos.csv", io.BytesIO(CSV.encode("utf-8")), "text/csv")},
+        files={"files": ("gastos.csv", io.BytesIO(CSV.encode("utf-8")), "text/csv")},
         data={"default_person": ""},
         follow_redirects=False,
     )

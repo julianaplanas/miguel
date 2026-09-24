@@ -74,7 +74,7 @@ def auth():
         )
         client.post(
             "/archivos/upload",
-            files={"file": ("mixto.csv", io.BytesIO(CSV.encode("utf-8")), "text/csv")},
+            files={"files": ("mixto.csv", io.BytesIO(CSV.encode("utf-8")), "text/csv")},
             data={"default_person": "", "default_currency": "ARS"},
             follow_redirects=False,
         )
