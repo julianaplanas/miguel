@@ -80,3 +80,68 @@ def pdf_escaneado() -> bytes:
     c.showPage()
     c.save()
     return buffer.getvalue()
+
+
+def resumen_tarjeta_dos_columnas() -> bytes:
+    """Resumen de tarjeta con columnas separadas de PESOS y DOLARES.
+
+    Reproduce lo que complica a un lector de texto plano: la fecha con el
+    mes en letras (29-Jul-26), un numero de comprobante antes del importe,
+    importes escritos dentro de la descripcion, y el importe de la linea
+    cayendo en una columna o en la otra segun la moneda. En texto plano las
+    dos columnas quedan pegadas y no hay forma de saber cual es cual.
+    """
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    x_fecha, x_desc, x_comp = 20 * mm, 40 * mm, 130 * mm
+    x_pesos, x_dolares = 170 * mm, 195 * mm  # borde derecho: van alineados
+
+    y = 280 * mm
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(x_fecha, y, "Tarjeta Credito MASTERCARD - Resumen N 0270103")
+    y -= 10 * mm
+    c.setFont("Helvetica", 8)
+    c.drawString(x_fecha, y, "CONSOLIDADO")
+    c.drawRightString(x_pesos, y, "PESOS")
+    c.drawRightString(x_dolares, y, "DOLARES")
+    y -= 5 * mm
+    c.drawString(x_fecha, y, "SALDO ANTERIOR")
+    c.drawRightString(x_pesos, y, "1.648.746,33")
+    y -= 5 * mm
+    c.drawString(x_fecha, y, "31-Jul-26")
+    c.drawString(x_desc, y, "SU PAGO")
+    c.drawRightString(x_pesos, y, "-1.653.873,20")
+    y -= 10 * mm
+
+    c.drawString(x_fecha, y, "FECHA")
+    c.drawString(x_desc, y, "REFERENCIA")
+    c.drawString(x_comp, y, "COMPROBANTE")
+    c.drawRightString(x_pesos, y, "PESOS")
+    c.drawRightString(x_dolares, y, "DOLARES")
+    y -= 6 * mm
+
+    consumos = [
+        ("29-Jul-26", "APPLE.COM/BILL (USA,USD, 0,99)", "00322", None, "0,99"),
+        ("10-Ago-26", "Spotify (SWE,ARS, 5499,00)", "00217", None, "3,67"),
+        ("22-Jul-26", "WWW1.HOSPITALITALIANO", "08783", "21.425,71", None),
+        ("05-Ago-26", "MERPAGO*COCACOLAENTUC", "07859", "286.740,00", None),
+        ("12-Sep-25", "DLO*DUVET HOME 12/12", "02402", "77.413,75", None),
+    ]
+    for fecha, desc, comprobante, pesos, dolares in consumos:
+        c.drawString(x_fecha, y, fecha)
+        c.drawString(x_desc, y, desc)
+        c.drawString(x_comp, y, comprobante)
+        if pesos:
+            c.drawRightString(x_pesos, y, pesos)
+        if dolares:
+            c.drawRightString(x_dolares, y, dolares)
+        y -= 5.5 * mm
+
+    y -= 4 * mm
+    c.drawString(x_desc, y, "TOTAL A PAGAR")
+    c.drawRightString(x_pesos, y, "385.579,46")
+    c.drawRightString(x_dolares, y, "4,66")
+
+    c.showPage()
+    c.save()
+    return buffer.getvalue()

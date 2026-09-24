@@ -30,9 +30,40 @@ AMOUNT_RE = re.compile(
     r"(?P<num>-?\d{1,3}(?:[.,]\d{3})+[.,]\d{2}|-?\d+[.,]\d{2})"
     r"(?P<post>\s*-)?"
 )
-# Fecha al principio de la linea: 15/01, 15/01/26, 15-01-2026.
-DATE_RE = re.compile(r"^\s*(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b")
+# Un importe que ocupa una "palabra" entera del PDF. Se usa en la pasada por
+# posicion: sirve para distinguir el importe del numero de comprobante y de
+# los numeros que aparecen dentro de la descripcion.
+WORD_AMOUNT_RE = re.compile(
+    r"^(?:US\$|U\$S|u\$s|\$)?\s*"
+    r"(-?\d{1,3}(?:[.,]\d{3})+[.,]\d{2}|-?\d+[.,]\d{2})"
+    r"(\s*-)?$"
+)
+# Fecha al principio de la linea: 15/01, 15/01/26, 15-01-2026 y tambien
+# 29-Jul-26, que es como las imprimen los resumenes de tarjeta.
+DATE_RE = re.compile(
+    r"^\s*(\d{1,2})[/-](\d{1,2}|[A-Za-z\u00c0-\u017f]{3,10})(?:[/-](\d{2,4}))?\b"
+)
 YEAR_RE = re.compile(r"\b(20\d{2})\b")
+
+MONTHS = {
+    "ene": 1, "jan": 1, "feb": 2, "mar": 3, "abr": 4, "apr": 4, "may": 5,
+    "jun": 6, "jul": 7, "ago": 8, "aug": 8, "sep": 9, "set": 9, "oct": 10,
+    "nov": 11, "dic": 12, "dec": 12,
+}
+
+# Cabeceras que dicen en que moneda esta cada columna de importes. Al peso
+# se le deja la moneda vacia a proposito: la elige el usuario al subir el
+# archivo, asi el mismo lector sirve para un resumen uruguayo o chileno.
+CURRENCY_COLUMNS = {
+    "pesos": "",
+    "peso": "",
+    "importe": "",
+    "dolares": "USD",
+    "dolar": "USD",
+    "usd": "USD",
+    "u$s": "USD",
+    "us$": "USD",
+}
 
 HEADER_DATE = {"fecha", "fecha operacion", "fecha de operacion", "dia", "date"}
 HEADER_AMOUNT = {"importe", "monto", "debito", "credito", "amount", "valor", "cargo"}
@@ -51,6 +82,14 @@ SKIP_WORDS = (
     "total periodo",
     "subtotal",
     "transporte",
+    # Resumenes de tarjeta: el pago del resumen anterior cancela consumos
+    # que ya estan cargados, asi que contarlo restaria gastos reales.
+    "su pago",
+    "pago recibido",
+    "pagos efectuados",
+    "saldo pendiente",
+    "total a pagar",
+    "total consumos",
 )
 
 
@@ -91,10 +130,20 @@ def _document_year(texto: str) -> int | None:
     return int(Counter(anos).most_common(1)[0][0])
 
 
+def _month_number(texto: str) -> int | None:
+    """Numero de mes, venga como cifra (08) o abreviado (Ago, Aug)."""
+    if texto.isdigit():
+        return int(texto)
+    return MONTHS.get(_normalize(texto)[:3])
+
+
 def _parse_date(match: re.Match, year_hint: int | None) -> str | None:
     dia, mes, ano = match.group(1), match.group(2), match.group(3)
+    mes_numero = _month_number(mes)
+    if mes_numero is None:
+        return None
     try:
-        d, m = int(dia), int(mes)
+        d, m = int(dia), mes_numero
     except ValueError:
         return None
     if not (1 <= d <= 31 and 1 <= m <= 12):
@@ -160,6 +209,131 @@ def _rows_from_lines(lineas: list[str], year_hint: int | None) -> list[dict[str,
                 "descripcion": descripcion[:200],
                 "importe": numero,
                 "moneda": moneda,
+            }
+        )
+    return filas
+
+
+def _page_lines(page: Any) -> list[list[dict[str, Any]]]:
+    """Palabras de la pagina agrupadas en lineas, con sus coordenadas."""
+    try:
+        palabras = page.extract_words()
+    except Exception:  # noqa: BLE001 - pdfminer lanza de todo
+        return []
+    palabras.sort(key=lambda w: (round(w["top"], 1), w["x0"]))
+
+    lineas: list[list[dict[str, Any]]] = []
+    actual: list[dict[str, Any]] = []
+    tope: float | None = None
+    for palabra in palabras:
+        if tope is not None and abs(palabra["top"] - tope) <= 3:
+            actual.append(palabra)
+            continue
+        if actual:
+            lineas.append(actual)
+        actual = [palabra]
+        tope = palabra["top"]
+    if actual:
+        lineas.append(actual)
+    return lineas
+
+
+def _currency_columns(lineas: list[list[dict[str, Any]]]) -> list[tuple[float, float, str]]:
+    """Columnas de importe de la pagina, segun su cabecera (PESOS / DOLARES).
+
+    Solo se dan por buenas si hay una columna de dolares: es el caso que no
+    se puede resolver leyendo el texto plano, porque ahi el importe en
+    dolares y el importe en pesos quedan uno detras de otro sin nada que
+    los distinga.
+    """
+    columnas: list[tuple[float, float, str]] = []
+    for linea in lineas:
+        # Solo se miran las lineas de cabecera (las que encabezan la fecha).
+        # Si no, un "US$" escrito delante de un importe pasaria por columna.
+        if not any(_normalize(p["text"]) in HEADER_DATE for p in linea):
+            continue
+        for palabra in linea:
+            codigo = CURRENCY_COLUMNS.get(_normalize(palabra["text"]))
+            if codigo is None:
+                continue
+            columnas.append((palabra["x0"], palabra["x1"], codigo))
+    if not any(codigo == "USD" for _, _, codigo in columnas):
+        return []
+    return columnas
+
+
+def _column_currency(palabra: dict[str, Any], columnas) -> str | None:
+    """Moneda de la columna donde cae esa palabra, o None si no cae en ninguna."""
+    mejor: str | None = None
+    distancia: float | None = None
+    for x0, x1, codigo in columnas:
+        if palabra["x0"] <= x1 and palabra["x1"] >= x0:
+            return codigo
+        # Los importes van alineados a la derecha, asi que el borde derecho
+        # es lo que mejor identifica la columna.
+        actual = abs(palabra["x1"] - x1)
+        if distancia is None or actual < distancia:
+            mejor, distancia = codigo, actual
+    if distancia is not None and distancia <= 20:
+        return mejor
+    return None
+
+
+def _rows_from_layout(page: Any, year_hint: int | None) -> list[dict[str, Any]]:
+    """Movimientos de un resumen con columnas de pesos y dolares.
+
+    Se usa la posicion de cada palabra, no el orden del texto: en estos
+    resumenes el importe de la linea puede estar en una columna o en la
+    otra, y leyendo el texto plano no hay forma de saber cual. Ademas evita
+    confundir el numero de comprobante, o un importe escrito dentro de la
+    descripcion, con el importe del movimiento.
+    """
+    lineas = _page_lines(page)
+    columnas = _currency_columns(lineas)
+    if not columnas:
+        return []
+
+    filas: list[dict[str, Any]] = []
+    for linea in lineas:
+        match = DATE_RE.match(linea[0]["text"])
+        if not match:
+            continue
+        fecha = _parse_date(match, year_hint)
+        if not fecha:
+            continue
+
+        elegido: tuple[str, str] | None = None
+        descripcion: list[str] = []
+        for palabra in linea[1:]:
+            texto = palabra["text"]
+            importe = WORD_AMOUNT_RE.match(texto)
+            if importe:
+                moneda = _column_currency(palabra, columnas)
+                if moneda is not None:
+                    if elegido is None:
+                        numero = importe.group(1)
+                        if importe.group(2):
+                            numero = f"-{numero.lstrip('-')}"
+                        elegido = (numero, moneda)
+                    continue
+            # El numero de comprobante cambia en cada linea: dejarlo en la
+            # descripcion haria que ningun comercio se repitiera nunca, y
+            # cada uno costaria una consulta al modelo.
+            if texto.isdigit() and len(texto) >= 4:
+                continue
+            descripcion.append(texto)
+
+        if elegido is None:
+            continue
+        texto = " ".join(descripcion).strip(" .-\t")
+        if not texto or not _is_movement(texto):
+            continue
+        filas.append(
+            {
+                "fecha": fecha,
+                "descripcion": texto[:200],
+                "importe": elegido[0],
+                "moneda": elegido[1],
             }
         )
     return filas
@@ -241,6 +415,10 @@ def extract_rows(data: bytes) -> pd.DataFrame:
     filas: list[dict[str, Any]] = []
     for page in paginas:
         filas.extend(_rows_from_tables(page, year_hint))
+
+    if not filas:
+        for page in paginas:
+            filas.extend(_rows_from_layout(page, year_hint))
 
     if not filas:
         filas = _rows_from_lines(texto_completo.splitlines(), year_hint)

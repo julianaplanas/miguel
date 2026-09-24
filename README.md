@@ -99,6 +99,14 @@ Lo que hace bien:
 - Detecta `US$` y `U$S` por consumo, así que un resumen de tarjeta con compras
   en pesos y en dólares se importa con cada moneda en su sitio.
 
+De los resúmenes de tarjeta con columnas separadas de **pesos y dólares** se
+lee la columna donde cae cada importe, no el orden del texto: un consumo en
+dólares queda en dólares aunque la descripción diga otra cosa. El pago del
+resumen anterior no se importa (cancela consumos que ya están cargados) y los
+cargos sin fecha —comisión de mantenimiento, IVA, percepciones— tampoco, así
+que el total importado es el de *consumos del mes*, no el *total a pagar*. Las
+cuotas llevan la fecha de la compra original, que es la que imprime el resumen.
+
 Límites honestos: **un PDF escaneado no sirve** (no tiene capa de texto; la app
 lo dice en vez de importar basura), y cada banco maqueta distinto. Si tu resumen
 no sale bien, el mapeo de columnas se corrige a mano desde Archivos, o exportá

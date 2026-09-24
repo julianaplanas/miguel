@@ -13,7 +13,12 @@ from app.main import app
 from app.pdf_import import PdfImportError, extract_rows
 
 from tests.conftest import reset_db
-from tests.pdf_fixtures import extracto_con_saldo, pdf_escaneado, resumen_tarjeta_dolares
+from tests.pdf_fixtures import (
+    extracto_con_saldo,
+    pdf_escaneado,
+    resumen_tarjeta_dolares,
+    resumen_tarjeta_dos_columnas,
+)
 
 
 @pytest.fixture(scope="module")
@@ -50,6 +55,39 @@ def test_dolares_en_resumen_de_tarjeta():
     assert monedas["AWS AMAZON WEB SERVICES"] == "USD"
     # `$` a secas no se marca: lo resuelve la moneda del archivo.
     assert monedas["YPF SERVICIOS"] == ""
+
+
+def test_resumen_con_columnas_de_pesos_y_dolares():
+    """El importe se toma de la columna donde cae, no del orden del texto."""
+    df = extract_rows(resumen_tarjeta_dos_columnas())
+    filas = {r["descripcion"]: r for _, r in df.iterrows()}
+
+    # Cae en la columna DOLARES aunque en la descripcion diga ARS: lo que
+    # manda es donde esta escrito el importe.
+    assert filas["Spotify (SWE,ARS, 5499,00)"]["moneda"] == "USD"
+    assert filas["Spotify (SWE,ARS, 5499,00)"]["importe"] == "3,67"
+    assert filas["APPLE.COM/BILL (USA,USD, 0,99)"]["moneda"] == "USD"
+    # Columna PESOS: la moneda la pone el usuario al subir el archivo.
+    assert filas["WWW1.HOSPITALITALIANO"]["moneda"] == ""
+    assert filas["WWW1.HOSPITALITALIANO"]["importe"] == "21.425,71"
+
+    # Ni el pago del resumen anterior ni los totales son movimientos.
+    assert len(df) == 5
+    assert not any("SU PAGO" in d for d in df["descripcion"])
+    assert not any("TOTAL A PAGAR" in d for d in df["descripcion"])
+    # El numero de comprobante cambia en cada linea: si quedara pegado a la
+    # descripcion, ningun comercio se repetiria y cada uno costaria una
+    # consulta al modelo.
+    assert not any("08783" in d for d in df["descripcion"])
+
+
+def test_fechas_con_el_mes_en_letras():
+    """29-Jul-26, como las imprimen los resumenes de tarjeta."""
+    fechas = set(extract_rows(resumen_tarjeta_dos_columnas())["fecha"])
+    assert "2026-07-29" in fechas
+    assert "2026-08-10" in fechas
+    # Una cuota lleva la fecha de la compra original, de otro ano.
+    assert "2025-09-12" in fechas
 
 
 def test_pdf_escaneado_da_un_error_claro():
@@ -126,3 +164,16 @@ def test_formato_no_soportado(auth):
     assert "error=" in destino
     assert "foto.png" in destino
     assert "PDF" in destino
+
+
+def test_subir_resumen_de_dos_columnas_por_la_ui(auth):
+    response = auth.post(
+        "/archivos/upload",
+        files={"files": ("master.pdf", io.BytesIO(resumen_tarjeta_dos_columnas()), "application/pdf")},
+        data={"default_person": "Ana", "default_currency": "ARS"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "error" not in response.headers["location"]
+    opciones = auth.get("/api/opciones").json()
+    assert set(opciones["currencies"]) == {"ARS", "USD"}
