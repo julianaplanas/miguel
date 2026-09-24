@@ -79,3 +79,18 @@ def test_data_dir_explicito_le_gana_al_volumen(monkeypatch, tmp_path):
                   DATA_DIR=str(elegida))
     assert s.data_dir == elegida.resolve()
     assert s.data_dir_source == "DATA_DIR"
+
+
+def test_el_env_example_no_fija_una_ruta_relativa():
+    """Regresion: '.env.example' traia DATA_DIR=./data.
+
+    Copiado tal cual a Railway, eso manda los datos a /app/data, fuera del
+    volumen, y se pierden en cada deploy. El ejemplo tiene que dejarla sin
+    definir para que la app detecte el volumen.
+    """
+    lineas = Path(".env.example").read_text().splitlines()
+    activas = [
+        linea for linea in lineas
+        if linea.strip().startswith("DATA_DIR=")
+    ]
+    assert activas == [], f"DATA_DIR no deberia venir definida: {activas}"

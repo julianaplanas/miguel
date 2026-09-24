@@ -275,6 +275,10 @@ La carpeta de datos se resuelve en este orden:
 2. `RAILWAY_VOLUME_MOUNT_PATH` — la ruta del volumen, que Railway expone sola.
 3. `./data`, que **vive dentro del contenedor y se borra en cada deploy**.
 
+> **No definas `DATA_DIR` en Railway.** Una ruta relativa como `./data` resuelve
+> a `/app/data`, que está fuera del volumen: los datos se borran en cada deploy
+> aunque el volumen exista. Sin esa variable, la app usa el volumen sola.
+
 En **/ajustes → Almacenamiento** se ve cuál se está usando, de dónde salió, si hay
 volumen montado, cuántos archivos hay y si se puede escribir. Si los datos quedaron
 fuera del volumen, la app lo dice ahí y también en la pantalla de Archivos, en vez
