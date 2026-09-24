@@ -61,6 +61,24 @@
     return (names[idx] || parts[1]) + ' ' + parts[0].slice(2);
   }
 
+  /* Valor numerico de un punto del grafico.
+
+     El detalle que importa: en barras horizontales (indexAxis 'y') el valor
+     esta en parsed.x y en parsed.y va el INDICE de la categoria. Leer el eje
+     equivocado hace que el tooltip muestre 0, 1, 2... en vez del importe. */
+  function pointValue(ctx) {
+    const parsed = ctx && ctx.parsed;
+    if (parsed !== null && typeof parsed === 'object') {
+      const horizontal = ctx.chart && ctx.chart.options && ctx.chart.options.indexAxis === 'y';
+      const eje = horizontal ? 'x' : 'y';
+      if (typeof parsed[eje] === 'number') return parsed[eje];
+      if (typeof parsed.r === 'number') return parsed.r;
+    }
+    if (typeof parsed === 'number') return parsed;  // doughnut y pie
+    const crudo = ctx && ctx.raw;
+    return typeof crudo === 'number' ? crudo : Number(crudo);
+  }
+
   function baseOptions(extra) {
     const options = {
       responsive: true,
@@ -81,9 +99,7 @@
           callbacks: {
             label: function (ctx) {
               const label = ctx.dataset.label ? ctx.dataset.label + ': ' : '';
-              const raw = ctx.parsed.y !== undefined && ctx.parsed.y !== null && !isNaN(ctx.parsed.y)
-                ? ctx.parsed.y : ctx.parsed.x !== undefined ? ctx.parsed.x : ctx.parsed;
-              return label + money(raw);
+              return label + money(pointValue(ctx));
             }
           }
         }
@@ -255,6 +271,7 @@
     theme: theme,
     money: money,
     setCurrency: setCurrency,
+    pointValue: pointValue,
     compact: compact,
     monthLabel: monthLabel,
     baseOptions: baseOptions,
