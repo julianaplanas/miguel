@@ -138,9 +138,11 @@ def resumen_tarjeta_dos_columnas() -> bytes:
         y -= 5.5 * mm
 
     y -= 4 * mm
+    # Este total es EXACTAMENTE la suma de los consumos de las dos hojas:
+    # es lo que deja comprobar que la lectura no se dejo ninguno.
     c.drawString(x_desc, y, "TOTAL A PAGAR")
-    c.drawRightString(x_pesos, y, "385.579,46")
-    c.drawRightString(x_dolares, y, "4,66")
+    c.drawRightString(x_pesos, y, "420.579,46")
+    c.drawRightString(x_dolares, y, "46,96")
 
     # Segunda hoja: sigue el detalle pero SIN repetir la cabecera, como
     # hacen muchos resumenes. Las columnas son las mismas.

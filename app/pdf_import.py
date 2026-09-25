@@ -116,15 +116,28 @@ def _is_movement(descripcion: str) -> bool:
     return primera not in SKIP_FIRST_WORDS
 
 
-def _anotar(skipped: list[str] | None, fecha: str, descripcion: str, importe: str) -> None:
+def _anotar(
+    skipped: list[dict[str, Any]] | None,
+    fecha: str,
+    descripcion: str,
+    importes: list[tuple[str, str]],
+) -> None:
     """Deja constancia de una linea que se leyo pero no se importa.
 
-    Lo que el lector descarta en silencio no se puede revisar: esta lista
-    es lo que se muestra en la pantalla de revision antes de importar.
+    Lo que el lector descarta en silencio no se puede revisar. Los importes
+    van con su moneda porque estas lineas suelen ser los totales que declara
+    el propio documento: con ellos se puede comprobar, sumando, que lo
+    importado cuadra.
     """
     if skipped is None:
         return
-    skipped.append(f"{fecha}  {descripcion}  {importe}".strip())
+    skipped.append(
+        {
+            "fecha": fecha,
+            "descripcion": descripcion,
+            "importes": [{"importe": numero, "moneda": moneda} for numero, moneda in importes],
+        }
+    )
 
 
 class PdfImportError(ValueError):
@@ -202,7 +215,7 @@ def _amounts(line: str) -> list[tuple[str, str, int]]:
 
 
 def _rows_from_lines(
-    lineas: list[str], year_hint: int | None, skipped: list[str] | None = None
+    lineas: list[str], year_hint: int | None, skipped: list[dict[str, Any]] | None = None
 ) -> list[dict[str, Any]]:
     candidatas: list[tuple[str, str, list[tuple[str, str, int]]]] = []
     for linea in lineas:
@@ -233,7 +246,7 @@ def _rows_from_lines(
         numero, moneda, posicion = importes[0]
         descripcion = re.sub(r"\s{2,}", " ", resto[:posicion].strip(" .-\t"))
         if not _is_movement(descripcion):
-            _anotar(skipped, fecha, descripcion, numero)
+            _anotar(skipped, fecha, descripcion, [(numero, moneda)])
             continue
         filas.append(
             {
@@ -309,11 +322,43 @@ def _column_currency(palabra: dict[str, Any], columnas) -> str | None:
     return None
 
 
+def _anotar_declarado(
+    skipped: list[dict[str, Any]] | None,
+    linea: list[dict[str, Any]],
+    columnas: list[tuple[float, float, str]],
+) -> None:
+    """Guarda una linea de totales del documento, con sus importes."""
+    if skipped is None:
+        return
+    palabras = []
+    importes: list[tuple[str, str]] = []
+    for palabra in linea:
+        encontrado = WORD_AMOUNT_RE.match(palabra["text"])
+        if encontrado:
+            moneda = _column_currency(palabra, columnas)
+            if moneda is not None:
+                numero = encontrado.group(1)
+                if encontrado.group(2):
+                    numero = f"-{numero.lstrip('-')}"
+                importes.append((numero, moneda))
+                continue
+        palabras.append(palabra["text"])
+    if not importes:
+        return
+    texto = " ".join(palabras).strip()
+    # Solo las que son totales de verdad: el mismo criterio estructural que
+    # decide que una linea con fecha no es un movimiento.
+    primera = _normalize(texto).split(" ", 1)[0].strip(".:-") if texto else ""
+    if primera not in SKIP_FIRST_WORDS:
+        return
+    _anotar(skipped, "", texto, importes)
+
+
 def _rows_from_layout(
     lineas: list[list[dict[str, Any]]],
     columnas: list[tuple[float, float, str]],
     year_hint: int | None,
-    skipped: list[str] | None = None,
+    skipped: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Movimientos de un resumen con columnas de pesos y dolares.
 
@@ -326,13 +371,16 @@ def _rows_from_layout(
     filas: list[dict[str, Any]] = []
     for linea in lineas:
         match = DATE_RE.match(linea[0]["text"])
-        if not match:
-            continue
-        fecha = _parse_date(match, year_hint)
+        fecha = _parse_date(match, year_hint) if match else None
         if not fecha:
+            # Sin fecha no es un movimiento, pero puede ser un total que el
+            # documento declara ("TOTAL CONSUMOS DEL MES"). Esos son con los
+            # que se comprueba, sumando, que lo importado cuadra.
+            _anotar_declarado(skipped, linea, columnas)
             continue
 
         elegido: tuple[str, str] | None = None
+        encontrados: list[tuple[str, str]] = []
         descripcion: list[str] = []
         for palabra in linea[1:]:
             texto = palabra["text"]
@@ -340,10 +388,11 @@ def _rows_from_layout(
             if importe:
                 moneda = _column_currency(palabra, columnas)
                 if moneda is not None:
+                    numero = importe.group(1)
+                    if importe.group(2):
+                        numero = f"-{numero.lstrip('-')}"
+                    encontrados.append((numero, moneda))
                     if elegido is None:
-                        numero = importe.group(1)
-                        if importe.group(2):
-                            numero = f"-{numero.lstrip('-')}"
                         elegido = (numero, moneda)
                     continue
             # El numero de comprobante cambia en cada linea: dejarlo en la
@@ -357,7 +406,7 @@ def _rows_from_layout(
             continue
         texto = " ".join(descripcion).strip(" .-\t")
         if not texto or not _is_movement(texto):
-            _anotar(skipped, fecha, texto, elegido[0])
+            _anotar(skipped, fecha, texto, encontrados)
             continue
         filas.append(
             {
@@ -371,7 +420,7 @@ def _rows_from_layout(
 
 
 def _rows_from_tables(
-    page: Any, year_hint: int | None, skipped: list[str] | None = None
+    page: Any, year_hint: int | None, skipped: list[dict[str, Any]] | None = None
 ) -> list[dict[str, Any]]:
     try:
         tablas = page.extract_tables()
@@ -411,7 +460,7 @@ def _rows_from_tables(
             numero, moneda, _ = importes[0]
             descripcion = str(cruda[col_desc] or "").strip() if col_desc is not None else ""
             if not _is_movement(descripcion):
-                _anotar(skipped, fecha, descripcion, numero)
+                _anotar(skipped, fecha, descripcion, [(numero, moneda)])
                 continue
             filas.append(
                 {
@@ -424,7 +473,7 @@ def _rows_from_tables(
     return filas
 
 
-def extract_rows(data: bytes, skipped: list[str] | None = None) -> pd.DataFrame:
+def extract_rows(data: bytes, skipped: list[dict[str, Any]] | None = None) -> pd.DataFrame:
     """Devuelve los movimientos del PDF como DataFrame (fecha/descripcion/importe/moneda).
 
     En `skipped`, si se pasa, quedan las lineas que se leyeron pero no se

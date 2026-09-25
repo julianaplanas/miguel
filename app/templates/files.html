@@ -9,7 +9,8 @@
 {% if message %}<div class="flash ok" data-toast>{{ message }}</div>{% endif %}
 {% if error %}<div class="flash err" data-toast>{{ error }}</div>{% endif %}
 
-<form class="card" method="post" action="/archivos/upload" enctype="multipart/form-data" style="margin-bottom:20px">
+<form class="card" method="post" action="/archivos/upload" enctype="multipart/form-data"
+      style="margin-bottom:20px" data-ocupado="Leyendo...">
   <div class="card-head">
     <h2>Subir archivos</h2>
     <span class="hint">Puedes elegir varios a la vez; se detectan solas las columnas de fecha, importe, categoria y persona</span>

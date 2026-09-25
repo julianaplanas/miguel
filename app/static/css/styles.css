@@ -291,6 +291,66 @@ tbody tr:hover { background: var(--surface-2); }
 .tabla-revision input[type="checkbox"] { min-width: auto; margin: 0; }
 .tabla-revision tr.fuera td { color: var(--text-muted); text-decoration: line-through; }
 .tabla-revision tr.fuera td:first-child { text-decoration: none; }
+/* Tarjetas plegables (las tablas largas del dashboard). */
+.card.plegable > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+  margin: -4px 0;
+}
+.card.plegable > summary::-webkit-details-marker { display: none; }
+.card.plegable > summary::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 1.6px solid var(--text-muted);
+  border-bottom: 1.6px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform .15s ease;
+  flex: none;
+}
+.card.plegable[open] > summary::before { transform: rotate(45deg); }
+.card.plegable > summary .titulo { font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+.card.plegable > summary .hint { margin-left: auto; }
+.card.plegable[open] > summary { margin-bottom: 14px; }
+
+button.ocupado { opacity: .7; cursor: progress; }
+
+.aviso-fila {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.ver-origen {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  cursor: pointer;
+}
+.ver-origen:hover { color: var(--text-primary); background: var(--surface-2); }
+tr.origen td { background: var(--surface-2); }
+tr.origen pre {
+  margin: 0;
+  padding: 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-secondary);
+}
+tr.cuadra td { background: color-mix(in srgb, var(--good) 8%, transparent); }
+.cuadra-ok { color: var(--success-text); font-weight: 600; }
 .ignoradas {
   margin: 8px 0 0;
   padding: 0 0 0 18px;

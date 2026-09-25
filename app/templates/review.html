@@ -19,7 +19,8 @@
 </div>
 {% endif %}
 
-<form method="post" action="/archivos/{{ file.id }}/revisar" id="form-revision">
+<form method="post" action="/archivos/{{ file.id }}/revisar" id="form-revision"
+      data-ocupado="Un momento...">
 <div class="stack">
 
   <div class="card">
@@ -31,7 +32,7 @@
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>Moneda</th><th class="num">Gasto</th><th class="num">Ingreso</th><th class="num">Filas</th></tr>
+            <tr><th>Moneda</th><th class="num">Gasto</th><th class="num">Ingreso</th><th class="num">Neto</th><th class="num">Filas</th></tr>
           </thead>
           <tbody>
             {% for m in por_moneda %}
@@ -39,15 +40,15 @@
               <td>{{ m.code }}</td>
               <td class="num">{{ m.gasto | money(m.code) }}</td>
               <td class="num">{{ m.ingreso | money(m.code) }}</td>
+              <td class="num"><strong>{{ m.neto | money(m.code) }}</strong></td>
               <td class="num">{{ m.filas }}</td>
             </tr>
             {% else %}
-            <tr><td colspan="4">No entra ninguna fila.</td></tr>
+            <tr><td colspan="5">No entra ninguna fila.</td></tr>
             {% endfor %}
           </tbody>
         </table>
         <p class="file-meta" style="margin:10px 0 0">
-          Compara estos totales con los del propio resumen: si no cuadran, algo falta o algo sobra.
           {% if desde %}Periodo: {{ desde }} a {{ hasta }}.{% endif %}
         </p>
       </div>
@@ -59,25 +60,11 @@
         </div>
         {% endif %}
 
-        {% if skipped %}
-        <details class="mapping">
-          <summary>
-            {{ skipped | length }} linea{{ '' if skipped | length == 1 else 's' }}
-            que el lector ignoro
-          </summary>
-          <p class="file-meta">
-            Se vieron en el documento pero no parecen movimientos (totales, saldos, el pago
-            del propio resumen). Si alguna si lo era, avisame que formato es y lo corrijo.
-          </p>
-          <ul class="ignoradas">
-            {% for linea in skipped %}<li>{{ linea }}</li>{% endfor %}
-          </ul>
-        </details>
-        {% endif %}
 
         <div class="file-actions" style="margin-top:10px">
           {% if chat_enabled %}
           <button type="submit" name="accion" value="modelo" class="btn-sm"
+                  data-ocupado="Preguntando..."
                   title="Le pregunta al modelo cuales de estas lineas no son movimientos">
             Revisar con el modelo
           </button>
@@ -91,6 +78,60 @@
       </div>
     </div>
   </div>
+
+  {% if declarados %}
+  {% set cuadra_alguno = declarados | selectattr('cuadra') | list | length > 0 %}
+  <div class="card">
+    <div class="card-head">
+      <h2>Contra los totales del documento</h2>
+      <span class="hint">Lo que el propio resumen declara, comparado con lo que entraria</span>
+    </div>
+    {% if cuadra_alguno %}
+    <div class="flash ok" style="margin:0 0 12px">
+      Una de las lineas de totales del documento <strong>coincide al centavo</strong> con lo que
+      se va a importar. Es la mejor senal de que no falta ni sobra nada.
+    </div>
+    {% else %}
+    <div class="flash err" style="margin:0 0 12px">
+      Ningun total del documento coincide con lo que se va a importar. Puede ser normal
+      (un total que incluye impuestos o el saldo anterior), pero conviene mirar la diferencia:
+      si es igual al importe de una fila, esa fila falta o sobra.
+    </div>
+    {% endif %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Linea del documento</th><th class="num">Declara</th><th class="num">Diferencia con lo importado</th></tr>
+        </thead>
+        <tbody>
+          {% for d in declarados %}
+          <tr class="{{ 'cuadra' if d.cuadra }}">
+            <td>{% if d.fecha %}{{ d.fecha }} · {% endif %}{{ d.descripcion }}</td>
+            <td class="num">
+              {% for i in d.importes %}
+              <div>{{ i.importe | money(i.moneda) }}</div>
+              {% endfor %}
+            </td>
+            <td class="num">
+              {% for i in d.importes %}
+              <div>
+                {% if i.cuadra %}<span class="cuadra-ok">coincide</span>
+                {% elif i.diferencia is none %}<span class="file-meta">sin filas en {{ i.moneda }}</span>
+                {% else %}{{ i.diferencia | money(i.moneda) }}{% endif %}
+              </div>
+              {% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="file-meta" style="margin:10px 0 0">
+      Estas lineas no se importan (son totales y saldos, no movimientos): estan aca solo para
+      comprobar la lectura.
+    </p>
+  </div>
+  {% endif %}
 
   <details class="card mapping" {{ 'open' if not mapping.get('date') or not mapping.get('amount') }}>
     <summary><strong>Como se leyeron las columnas</strong> ({{ mapping | length }} campos)</summary>
@@ -141,12 +182,24 @@
   <div class="card">
     <div class="card-head">
       <h2>Filas</h2>
-      <div style="display:flex; gap:8px; align-items:center">
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
         <span class="hint" id="contador-filas">{{ incluidas }} marcadas</span>
+        {% if duplicadas %}
+        <button type="button" class="btn-sm" id="desmarcar-duplicadas">
+          Desmarcar {{ duplicadas }} duplicada{{ '' if duplicadas == 1 else 's' }}
+        </button>
+        {% endif %}
         <button type="button" class="btn-sm" id="marcar-todas">Marcar todas</button>
         <button type="button" class="btn-sm" id="desmarcar-todas">Desmarcar todas</button>
       </div>
     </div>
+    {% if duplicadas %}
+    <div class="flash err" style="margin:0 0 12px">
+      <strong>{{ duplicadas }} fila{{ '' if duplicadas == 1 else 's' }}</strong>
+      coincide{{ 'n' if duplicadas > 1 }} con movimientos que ya estan importados (misma fecha,
+      importe y descripcion). Si este archivo se superpone con otro que ya subiste, desmarcalas.
+    </div>
+    {% endif %}
     <div class="table-wrap">
       <table class="tabla-revision">
         <thead>
@@ -157,6 +210,7 @@
             <th>Categoria</th>
             <th class="num">Importe</th>
             <th>Moneda</th>
+            <th style="width:40px"><span class="sr-only">Origen</span></th>
           </tr>
         </thead>
         <tbody>
@@ -165,16 +219,24 @@
             <td>
               <input type="checkbox" name="incluir" value="{{ r.i }}"
                      {{ 'checked' if r.incluida }} data-fila="{{ r.i }}"
+                     {{ 'data-duplicada' if r.duplicada }}
                      aria-label="Incluir {{ r.descripcion }}">
             </td>
             <td>{{ r.fecha or '—' }}</td>
             <td>
               {{ r.descripcion or '—' }}
-              {% if r.motivo %}<span class="file-meta"> · {{ r.motivo }}</span>{% endif %}
+              {% for aviso in r.avisos %}
+              <span class="aviso-fila">{{ aviso }}</span>
+              {% endfor %}
             </td>
             <td>{{ r.categoria or '—' }}</td>
             <td class="num">{{ r.importe | money(r.moneda) }}</td>
             <td>{{ r.moneda }}</td>
+            <td>
+              <button type="button" class="ver-origen" data-origen="{{ r.origen }}"
+                      title="Ver la fila tal como vino del archivo"
+                      aria-label="Ver el origen de {{ r.descripcion }}">{ }</button>
+            </td>
           </tr>
           {% endfor %}
         </tbody>
@@ -197,7 +259,8 @@
         <button type="submit" class="btn-sm btn-danger" form="form-descartar">
           Descartar archivo
         </button>
-        <button type="submit" name="accion" value="importar" class="btn-primary">
+        <button type="submit" name="accion" value="importar" class="btn-primary"
+                data-ocupado="Importando...">
           Importar <span id="contador-boton">{{ incluidas }}</span> filas
         </button>
       </div>
@@ -241,6 +304,37 @@
     document.getElementById('desmarcar-todas').addEventListener('click', function () {
       casillas.forEach(function (c) { c.checked = false; });
       pintar();
+    });
+    const soloDuplicadas = document.getElementById('desmarcar-duplicadas');
+    if (soloDuplicadas) {
+      soloDuplicadas.addEventListener('click', function () {
+        casillas.forEach(function (c) {
+          if (c.hasAttribute('data-duplicada')) c.checked = false;
+        });
+        pintar();
+      });
+    }
+
+    /* Ver la fila tal como vino del archivo: es la unica forma de auditar
+       que lo que se muestra es lo que decia el documento y no algo que el
+       lector interpreto de mas. */
+    form.querySelectorAll('.ver-origen').forEach(function (boton) {
+      boton.addEventListener('click', function () {
+        const fila = boton.closest('tr');
+        const abierta = fila.nextElementSibling;
+        if (abierta && abierta.classList.contains('origen')) { abierta.remove(); return; }
+        let texto = boton.dataset.origen || '';
+        try { texto = JSON.stringify(JSON.parse(texto), null, 2); } catch (e) {}
+        const nueva = document.createElement('tr');
+        nueva.className = 'origen';
+        const celda = document.createElement('td');
+        celda.colSpan = 7;
+        const pre = document.createElement('pre');
+        pre.textContent = texto || 'Sin datos de origen.';
+        celda.appendChild(pre);
+        nueva.appendChild(celda);
+        fila.after(nueva);
+      });
     });
 
     form.addEventListener('submit', function () {

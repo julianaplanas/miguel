@@ -16,7 +16,7 @@ from app.config import get_settings
 from app.deps import require_user, templates
 from app.llm import OpenRouterError, find_non_movements
 from app.preferences import CAT_AI, base_currency, categorization_mode
-from app.categorize import NOT_A_MOVEMENT, SOURCE_AI, is_not_movement
+from app.categorize import NOT_A_MOVEMENT, SOURCE_AI, is_not_movement, normalize
 from app.rules import (
     ai_categorize_pending,
     save_rule,
@@ -25,7 +25,7 @@ from app.rules import (
     load_rules,
     recategorize,
 )
-from app.ingest import FIELDS, parse_file
+from app.ingest import FIELDS, parse_amount, parse_file
 from app.db import get_db
 from app.models import Transaction, UploadedFile
 
@@ -349,34 +349,125 @@ def _preview(db: Session, record: UploadedFile, mapping: dict | None, persona: s
     return parsed
 
 
+def _ya_importadas(db: Session, file_id: int) -> set[tuple]:
+    """Firma (fecha, importe, descripcion) de lo que ya esta guardado.
+
+    Sirve para avisar de duplicados: subir dos veces el mismo resumen es el
+    error mas facil de cometer y el mas dificil de notar despues, porque
+    todo parece correcto salvo que los totales estan al doble.
+    """
+    filas = db.execute(
+        select(Transaction.date, Transaction.amount, Transaction.description).where(
+            Transaction.file_id != file_id
+        )
+    ).all()
+    return {
+        (fecha.isoformat() if fecha else "", round(float(importe or 0.0), 2), normalize(desc or ""))
+        for fecha, importe, desc in filas
+    }
+
+
+def _declarados(parsed, moneda_archivo: str, netos: dict[str, float]) -> list[dict]:
+    """Totales que declara el propio documento, contra lo que se va a importar.
+
+    Es la unica comprobacion de verdad de que no falta ni sobra nada: si la
+    linea que dice TOTAL CONSUMOS coincide al centavo con la suma de lo
+    importado, la lectura es correcta.
+    """
+    vistos: set[tuple] = set()
+    salida: list[dict] = []
+    for entrada in parsed.skipped:
+        importes = []
+        for item in entrada.get("importes", []):
+            valor = parse_amount(item.get("importe"))
+            if valor is None:
+                continue
+            codigo = (item.get("moneda") or "").upper() or moneda_archivo
+            neto = netos.get(codigo)
+            importes.append(
+                {
+                    "importe": valor,
+                    "moneda": codigo,
+                    "diferencia": None if neto is None else round(valor - neto, 2),
+                    "cuadra": neto is not None and abs(valor - neto) < 0.01,
+                }
+            )
+        clave = (
+            entrada.get("fecha", ""),
+            entrada.get("descripcion", ""),
+            tuple((i["importe"], i["moneda"]) for i in importes),
+        )
+        if clave in vistos:
+            continue  # la misma linea repetida en cada hoja
+        vistos.add(clave)
+        salida.append(
+            {
+                "fecha": entrada.get("fecha", ""),
+                "descripcion": entrada.get("descripcion", ""),
+                "importes": importes,
+                # La linea cuadra solo si cuadran TODAS sus monedas: que
+                # coincida el dolar y no el peso no es que cuadre.
+                "cuadra": bool(importes) and all(i["cuadra"] for i in importes),
+            }
+        )
+    return salida
+
+
 def _preview_context(db: Session, record: UploadedFile, parsed, excluidas: set[int]) -> dict:
     filas = []
     por_moneda: dict[str, dict] = {}
+    conocidas = _ya_importadas(db, record.id)
+    dentro_del_archivo: set[tuple] = set()
     for indice, row in enumerate(parsed.rows):
         descartada = is_not_movement(row.get("category"))
         fuera = descartada or indice in excluidas
+        fecha = row["date"].isoformat() if row.get("date") else ""
+        importe = float(row.get("amount") or 0.0)
+        descripcion = row.get("description") or ""
+        firma = (fecha, round(importe, 2), normalize(descripcion))
+
+        avisos = []
+        if descartada:
+            avisos.append("una regla dice que no es un movimiento")
+        if not fecha:
+            avisos.append("sin fecha: no entra en la evolucion mensual")
+        if not importe:
+            avisos.append("importe cero")
+        if firma in conocidas:
+            avisos.append("ya hay un movimiento igual importado")
+        elif firma in dentro_del_archivo:
+            avisos.append("repetida dentro de este archivo")
+        dentro_del_archivo.add(firma)
+
         filas.append(
             {
                 "i": indice,
-                "fecha": row["date"].isoformat() if row.get("date") else "",
-                "descripcion": row.get("description") or "",
-                "importe": row.get("amount") or 0.0,
+                "fecha": fecha,
+                "descripcion": descripcion,
+                "importe": importe,
                 "moneda": (row.get("currency") or "").upper(),
                 "categoria": "" if descartada else (row.get("category") or ""),
-                "motivo": "una regla dice que no es un movimiento" if descartada else "",
+                "avisos": avisos,
+                "duplicada": firma in conocidas,
+                "origen": row.get("raw") or "",
                 "incluida": not fuera,
             }
         )
         if fuera:
             continue
         codigo = (row.get("currency") or "").upper() or "?"
-        acumulado = por_moneda.setdefault(codigo, {"code": codigo, "gasto": 0.0, "ingreso": 0.0, "filas": 0})
-        importe = float(row.get("amount") or 0.0)
+        acumulado = por_moneda.setdefault(
+            codigo, {"code": codigo, "gasto": 0.0, "ingreso": 0.0, "neto": 0.0, "filas": 0}
+        )
         acumulado["filas"] += 1
+        acumulado["neto"] += importe
         if importe >= 0:
             acumulado["gasto"] += importe
         else:
             acumulado["ingreso"] += -importe
+
+    for acumulado in por_moneda.values():
+        acumulado["neto"] = round(acumulado["neto"], 2)
 
     fechas = [f["fecha"] for f in filas if f["incluida"] and f["fecha"]]
     pendientes = (
@@ -397,7 +488,12 @@ def _preview_context(db: Session, record: UploadedFile, parsed, excluidas: set[i
         "desde": min(fechas) if fechas else "",
         "hasta": max(fechas) if fechas else "",
         "warnings": parsed.warnings,
-        "skipped": parsed.skipped,
+        "declarados": _declarados(
+            parsed,
+            (parsed.mapping.get("default_currency") or base_currency(db)).upper(),
+            {codigo: datos["neto"] for codigo, datos in por_moneda.items()},
+        ),
+        "duplicadas": sum(1 for f in filas if f["duplicada"]),
         "mapping": parsed.mapping,
         "columns": parsed.columns,
         "fields": FIELDS,

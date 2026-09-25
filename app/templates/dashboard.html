@@ -165,11 +165,14 @@
     </div>
   </section>
 
-  <section class="card" style="margin-bottom:16px">
-    <div class="card-head">
-      <h2>Mayores gastos</h2>
+  <!-- Las dos tablas largas van plegadas: el dashboard se mira por los
+       graficos, y el detalle se abre cuando hace falta. El navegador
+       recuerda cual dejaste abierta. -->
+  <details class="card plegable" id="panel-top" style="margin-bottom:16px">
+    <summary>
+      <span class="titulo">Mayores gastos</span>
       <span class="hint">Top 15</span>
-    </div>
+    </summary>
     <div class="table-wrap">
       <table>
         <thead>
@@ -178,13 +181,13 @@
         <tbody id="tabla-top"></tbody>
       </table>
     </div>
-  </section>
+  </details>
 
-  <section class="card">
-    <div class="card-head">
-      <h2>Movimientos</h2>
+  <details class="card plegable" id="panel-movimientos">
+    <summary>
+      <span class="titulo">Movimientos</span>
       <span class="hint" id="movimientos-total"></span>
-    </div>
+    </summary>
     <p class="subtitle" style="margin:0 0 10px; font-size:13px">
       Hace click en una categoria para cambiarla, o en la cruz del final para
       borrar un movimiento que no deberia estar.
@@ -199,7 +202,7 @@
       </table>
     </div>
     <div style="margin-top:12px"><button type="button" id="cargar-mas" hidden>Cargar mas</button></div>
-  </section>
+  </details>
 </div>
 {% endif %}
 {% endblock %}

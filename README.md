@@ -150,6 +150,24 @@ va a guardar:
   líneas no son movimientos; lo que marque queda como regla y no vuelve a
   aparecer en ninguna importación futura.
 
+Además audita la lectura:
+
+- **Contra los totales del documento.** Los resúmenes declaran sus propios
+  totales ("TOTAL CONSUMOS DEL MES"), y esas líneas no se importan pero sí se
+  leen: la pantalla las muestra con la diferencia contra lo que entraría. Si una
+  coincide al centavo, la lectura es correcta y no hace falta revisar fila por
+  fila. Si ninguna coincide, la diferencia suele ser exactamente el importe de
+  lo que falta o sobra.
+- **Duplicados.** Marca las filas que ya existen importadas (misma fecha,
+  importe y descripción) y ofrece desmarcarlas de una. Subir dos veces el mismo
+  resumen es el error más fácil de cometer y el más difícil de notar: todo
+  parece bien salvo que los totales están al doble.
+- **Filas raras**: sin fecha (no entran en la evolución mensual) o con importe
+  cero, señaladas en su propia fila.
+- **El origen de cada fila**: el botón `{ }` al final muestra la fila cruda tal
+  como vino del archivo, con todas sus columnas, incluidas las que el mapeo no
+  usa.
+
 Nada de eso toca la base hasta que pulsás Importar. Si subís varios archivos se
 revisan en fila, uno tras otro. Destildando la casilla se importa directo, que
 es lo cómodo cuando ya sabés cómo sale ese formato. Un archivo ya importado se

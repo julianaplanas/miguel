@@ -727,9 +727,36 @@
   function mejorar(raiz) {
     const ambito = raiz || document;
     ambito.querySelectorAll('[data-menu]').forEach(mejorarMenu);
+    engancharOcupados();
     ambito.querySelectorAll('select').forEach(mejorarSelect);
     ambito.querySelectorAll('input[type="file"]').forEach(mejorarArchivo);
     ambito.querySelectorAll('input[type="date"]').forEach(mejorarFecha);
+  }
+
+  /* Formularios lentos (subir y leer archivos, preguntarle al modelo): sin
+     esto la pagina se queda quieta varios segundos y se vuelve a pulsar. */
+  function engancharOcupados() {
+    document.querySelectorAll('form[data-ocupado]').forEach((form) => {
+      if (form.dataset.uiOcupadoListo) return;
+      form.dataset.uiOcupadoListo = '1';
+      form.addEventListener('submit', (evento) => {
+        if (evento.defaultPrevented) return;
+        const boton = evento.submitter || form.querySelector('button[type="submit"], button:not([type])');
+        if (!boton || boton.disabled) return;
+        const etiqueta = boton.dataset.ocupado || form.dataset.ocupado;
+        // Un boton deshabilitado no se envia: el valor se manda aparte.
+        if (boton.name) {
+          const copia = document.createElement('input');
+          copia.type = 'hidden';
+          copia.name = boton.name;
+          copia.value = boton.value;
+          form.appendChild(copia);
+        }
+        boton.disabled = true;
+        boton.classList.add('ocupado');
+        if (etiqueta) boton.textContent = etiqueta;
+      });
+    });
   }
 
   function convertirFlashes() {

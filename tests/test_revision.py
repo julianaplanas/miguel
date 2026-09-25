@@ -134,10 +134,11 @@ def test_cambiar_el_mapeo_cambia_lo_que_se_lee(auth):
               "description": "persona", "default_currency": "ARS"},
         follow_redirects=False,
     )
-    # El mapeo queda guardado, asi que la revision ya lo muestra aplicado.
-    pagina = auth.get(f"/archivos/{file_id}/revisar").text
-    assert "COMPRA COTO DIGITAL" not in pagina
-    assert "Ana" in pagina
+    # El mapeo queda guardado: la revision, y lo que se importe despues,
+    # usan la columna nueva como descripcion.
+    _importar(auth, file_id, description="persona")
+    filas = {f["descripcion"] for f in auth.get("/api/transacciones").json()["rows"]}
+    assert filas == {"Ana"}
 
 
 def test_varios_archivos_se_revisan_en_fila(auth):

@@ -437,6 +437,19 @@
     if (ultimoResumen) pintarGraficos(ultimoResumen);
   });
 
+  /* Los paneles plegados recuerdan como los dejaste: si sos de mirar la
+     tabla de movimientos, no hay que abrirla en cada carga. */
+  ['panel-top', 'panel-movimientos'].forEach(function (id) {
+    const panel = document.getElementById(id);
+    if (!panel) return;
+    try {
+      if (localStorage.getItem('abierto:' + id) === '1') panel.open = true;
+    } catch (e) {}
+    panel.addEventListener('toggle', function () {
+      try { localStorage.setItem('abierto:' + id, panel.open ? '1' : '0'); } catch (e) {}
+    });
+  });
+
   fetch('/api/categorias')
     .then(function (r) { return r.ok ? r.json() : { categorias: [] }; })
     .then(function (d) { categoriasConocidas = d.categorias || []; });
