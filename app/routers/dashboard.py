@@ -6,11 +6,11 @@ import io
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.analytics import Filters, available_options, build_summary, fetch_rows, parse_date
-from app.categorize import SOURCE_MANUAL, SUGGESTED, UNCATEGORIZED
+from app.categorize import SOURCE_MANUAL, SUGGESTED, UNCATEGORIZED, normalize
 from app.db import get_db
 from app.deps import require_user, templates
 from app.models import Transaction, UploadedFile
@@ -181,6 +181,54 @@ def update_transaction(
         "regla": regla,
         "aplicados": aplicados,
     }
+
+
+@router.delete("/api/transacciones/{tx_id}")
+def delete_transaction(
+    tx_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_user),
+    similares: bool = Query(False),
+):
+    """Borra un movimiento (o todos los que digan lo mismo).
+
+    Existe porque ningun lector de PDF acierta siempre: si se cuela una
+    linea de totales o una fila repetida, tiene que poder sacarse sin
+    borrar el archivo entero y volver a subirlo. Con `similares` se van
+    todos los que comparten descripcion, que es como suelen aparecer.
+    """
+    tx = db.get(Transaction, tx_id)
+    if not tx:
+        raise HTTPException(status_code=404, detail="Movimiento no encontrado")
+
+    descripcion = tx.description or ""
+    objetivo = [tx]
+    if similares and descripcion.strip():
+        patron = normalize(descripcion)
+        objetivo = [
+            t
+            for t in db.execute(select(Transaction)).scalars().all()
+            if normalize(t.description or "") == patron
+        ]
+
+    archivos = {t.file_id for t in objetivo if t.file_id}
+    for movimiento in objetivo:
+        db.delete(movimiento)
+    db.flush()
+
+    # El contador del archivo se muestra en la pantalla de Archivos: si no
+    # se actualiza, dice mas movimientos de los que quedan.
+    for file_id in archivos:
+        record = db.get(UploadedFile, file_id)
+        if record:
+            record.row_count = (
+                db.execute(
+                    select(func.count(Transaction.id)).where(Transaction.file_id == file_id)
+                ).scalar()
+                or 0
+            )
+    db.commit()
+    return {"borrados": len(objetivo), "descripcion": descripcion}
 
 
 @router.get("/api/categorias")

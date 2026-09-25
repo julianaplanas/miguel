@@ -112,6 +112,11 @@ lo dice en vez de importar basura), y cada banco maqueta distinto. Si tu resumen
 no sale bien, el mapeo de columnas se corrige a mano desde Archivos, o exportá
 el CSV desde el homebanking, que siempre es más fiable.
 
+En la tabla de movimientos, la cruz del final de cada fila borra ese
+movimiento; en el diálogo se puede marcar **borrar todos los que digan lo
+mismo**, que es como suelen aparecer las líneas que no deberían estar. El
+borrado es definitivo: para recuperarlas hay que volver a importar el archivo.
+
 ## Formato de los archivos
 
 Se pueden subir **varios archivos de una vez** (cada uno queda como una entrada

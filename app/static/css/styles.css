@@ -386,6 +386,44 @@ details.mapping summary { cursor: pointer; font-size: 13px; color: var(--text-se
 .ui-modal-titulo { font-size: 17px; margin: 0 0 8px; letter-spacing: -0.01em; }
 .ui-modal-texto { margin: 0 0 18px; color: var(--text-secondary); font-size: 14px; }
 .ui-modal-acciones { display: flex; justify-content: flex-end; gap: 8px; }
+.ui-modal-opcion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.ui-modal-opcion input { min-width: auto; margin: 0; }
+
+/* Solo para lectores de pantalla: la columna del boton de borrar no lleva
+   titulo visible, pero sin nombre la cabecera no se entiende. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Borrar una fila de la tabla de movimientos. Se mantiene discreto hasta
+   que el puntero esta en la fila: no es una accion que se busque seguido. */
+.fila-borrar {
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+}
+tr:hover .fila-borrar, .fila-borrar:focus-visible { opacity: 1; }
+.fila-borrar:hover { background: var(--critical-soft, rgba(220,38,38,.12)); color: var(--critical); }
 .btn-peligro-solido {
   background: var(--critical);
   border-color: var(--critical);

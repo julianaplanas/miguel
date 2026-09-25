@@ -142,6 +142,30 @@ def resumen_tarjeta_dos_columnas() -> bytes:
     c.drawRightString(x_pesos, y, "385.579,46")
     c.drawRightString(x_dolares, y, "4,66")
 
+    # Segunda hoja: sigue el detalle pero SIN repetir la cabecera, como
+    # hacen muchos resumenes. Las columnas son las mismas.
+    c.showPage()
+    c.setFont("Helvetica", 8)
+    y = 280 * mm
+    c.drawString(x_fecha, y, "Tarjeta Credito MASTERCARD - continuacion")
+    y -= 10 * mm
+    siguen = [
+        ("18-Ago-26", "AWS AMAZON WEB SERVICES", "04102", None, "42,30"),
+        ("19-Ago-26", "TOTALGAS SRL", "04110", "35.000,00", None),
+        # Linea de totales con fecha: no es un gasto aunque lo parezca.
+        ("20-Ago-26", "TOTAL DEL MES", "", "421.579,46", "46,96"),
+    ]
+    for fecha, desc, comprobante, pesos, dolares in siguen:
+        c.drawString(x_fecha, y, fecha)
+        c.drawString(x_desc, y, desc)
+        if comprobante:
+            c.drawString(x_comp, y, comprobante)
+        if pesos:
+            c.drawRightString(x_pesos, y, pesos)
+        if dolares:
+            c.drawRightString(x_dolares, y, dolares)
+        y -= 5.5 * mm
+
     c.showPage()
     c.save()
     return buffer.getvalue()

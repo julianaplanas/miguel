@@ -90,12 +90,41 @@ SKIP_WORDS = (
     "saldo pendiente",
     "total a pagar",
     "total consumos",
+    "total del mes",
+    "total compras",
+    "total creditos",
+    "total debitos",
+    "total general",
+    "importe total",
+    "pago minimo",
+    "limite de compra",
 )
+
+
+# Con estas palabras empieza una linea de totales o de saldos, no un gasto.
+# Se comparan como palabra entera: "TOTALGAS SRL" es un comercio de verdad
+# y "TOTAL A PAGAR" no.
+SKIP_FIRST_WORDS = {
+    "total",
+    "totales",
+    "subtotal",
+    "saldo",
+    "saldos",
+    "suma",
+    "sumas",
+    "transporte",
+    "consolidado",
+}
 
 
 def _is_movement(descripcion: str) -> bool:
     texto = _normalize(descripcion)
-    return not any(palabra in texto for palabra in SKIP_WORDS)
+    if not texto:
+        return False
+    if any(palabra in texto for palabra in SKIP_WORDS):
+        return False
+    primera = texto.split(" ", 1)[0].strip(".:-")
+    return primera not in SKIP_FIRST_WORDS
 
 
 class PdfImportError(ValueError):
@@ -239,12 +268,12 @@ def _page_lines(page: Any) -> list[list[dict[str, Any]]]:
 
 
 def _currency_columns(lineas: list[list[dict[str, Any]]]) -> list[tuple[float, float, str]]:
-    """Columnas de importe de la pagina, segun su cabecera (PESOS / DOLARES).
+    """Columnas de importe segun su cabecera (PESOS / DOLARES).
 
-    Solo se dan por buenas si hay una columna de dolares: es el caso que no
-    se puede resolver leyendo el texto plano, porque ahi el importe en
-    dolares y el importe en pesos quedan uno detras de otro sin nada que
-    los distinga.
+    Se buscan en todo el documento, no pagina por pagina: la cabecera suele
+    estar solo en la primera y las hojas siguientes siguen las mismas
+    columnas. Buscandolas por pagina, las hojas sin cabecera se perdian
+    enteras y el total quedaba corto sin decir nada.
     """
     columnas: list[tuple[float, float, str]] = []
     for linea in lineas:
@@ -257,8 +286,6 @@ def _currency_columns(lineas: list[list[dict[str, Any]]]) -> list[tuple[float, f
             if codigo is None:
                 continue
             columnas.append((palabra["x0"], palabra["x1"], codigo))
-    if not any(codigo == "USD" for _, _, codigo in columnas):
-        return []
     return columnas
 
 
@@ -279,7 +306,11 @@ def _column_currency(palabra: dict[str, Any], columnas) -> str | None:
     return None
 
 
-def _rows_from_layout(page: Any, year_hint: int | None) -> list[dict[str, Any]]:
+def _rows_from_layout(
+    lineas: list[list[dict[str, Any]]],
+    columnas: list[tuple[float, float, str]],
+    year_hint: int | None,
+) -> list[dict[str, Any]]:
     """Movimientos de un resumen con columnas de pesos y dolares.
 
     Se usa la posicion de cada palabra, no el orden del texto: en estos
@@ -288,11 +319,6 @@ def _rows_from_layout(page: Any, year_hint: int | None) -> list[dict[str, Any]]:
     confundir el numero de comprobante, o un importe escrito dentro de la
     descripcion, con el importe del movimiento.
     """
-    lineas = _page_lines(page)
-    columnas = _currency_columns(lineas)
-    if not columnas:
-        return []
-
     filas: list[dict[str, Any]] = []
     for linea in lineas:
         match = DATE_RE.match(linea[0]["text"])
@@ -417,8 +443,15 @@ def extract_rows(data: bytes) -> pd.DataFrame:
         filas.extend(_rows_from_tables(page, year_hint))
 
     if not filas:
-        for page in paginas:
-            filas.extend(_rows_from_layout(page, year_hint))
+        por_pagina = [_page_lines(page) for page in paginas]
+        columnas: list[tuple[float, float, str]] = []
+        for lineas in por_pagina:
+            columnas.extend(_currency_columns(lineas))
+        # Sin una columna de dolares no hace falta mirar posiciones: el
+        # lector de texto plano de abajo alcanza y esta mas probado.
+        if any(codigo == "USD" for _, _, codigo in columnas):
+            for lineas in por_pagina:
+                filas.extend(_rows_from_layout(lineas, columnas, year_hint))
 
     if not filas:
         filas = _rows_from_lines(texto_completo.splitlines(), year_hint)

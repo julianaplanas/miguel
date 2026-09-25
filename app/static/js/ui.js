@@ -85,9 +85,12 @@
    * ------------------------------------------------------------------ */
   function confirmar(opciones) {
     const cfg = Object.assign(
-      { titulo: 'Confirmar', mensaje: '', aceptar: 'Aceptar', cancelar: 'Cancelar', peligroso: false },
+      { titulo: 'Confirmar', mensaje: '', aceptar: 'Aceptar', cancelar: 'Cancelar',
+        peligroso: false, opcion: null },
       opciones || {}
     );
+    // Con `opcion` el dialogo lleva ademas una casilla y resuelve
+    // { ok, opcion } en vez de un booleano, para no romper a quien no la usa.
     return new Promise((resolver) => {
       const previo = document.activeElement;
       const fondo = document.createElement('div');
@@ -109,6 +112,18 @@
       cuerpo.className = 'ui-modal-texto';
       cuerpo.textContent = cfg.mensaje;
 
+      let casilla = null;
+      if (cfg.opcion) {
+        const etiqueta = document.createElement('label');
+        etiqueta.className = 'ui-modal-opcion';
+        casilla = document.createElement('input');
+        casilla.type = 'checkbox';
+        casilla.checked = !!cfg.opcion.marcado;
+        etiqueta.appendChild(casilla);
+        etiqueta.appendChild(document.createTextNode(' ' + cfg.opcion.etiqueta));
+        caja.appendChild(etiqueta);
+      }
+
       const acciones = document.createElement('div');
       acciones.className = 'ui-modal-acciones';
 
@@ -124,8 +139,8 @@
 
       acciones.appendChild(btnCancelar);
       acciones.appendChild(btnAceptar);
-      caja.appendChild(titulo);
-      if (cfg.mensaje) caja.appendChild(cuerpo);
+      caja.insertBefore(titulo, caja.firstChild);
+      if (cfg.mensaje) caja.insertBefore(cuerpo, titulo.nextSibling);
       caja.appendChild(acciones);
       fondo.appendChild(caja);
       document.body.appendChild(fondo);
@@ -133,7 +148,10 @@
       requestAnimationFrame(() => fondo.classList.add('visible'));
       btnAceptar.focus();
 
-      function cerrar(respuesta) {
+      function cerrar(aceptado) {
+        const respuesta = cfg.opcion
+          ? { ok: aceptado, opcion: !!(casilla && casilla.checked) }
+          : aceptado;
         document.removeEventListener('keydown', alTeclado, true);
         fondo.classList.remove('visible');
         const quitar = () => {
@@ -151,7 +169,7 @@
           cerrar(false);
         } else if (evento.key === 'Tab') {
           // El foco no sale del dialogo.
-          const focos = [btnCancelar, btnAceptar];
+          const focos = casilla ? [casilla, btnCancelar, btnAceptar] : [btnCancelar, btnAceptar];
           const indice = focos.indexOf(document.activeElement);
           evento.preventDefault();
           const siguiente = evento.shiftKey ? indice - 1 : indice + 1;

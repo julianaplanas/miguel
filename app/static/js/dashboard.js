@@ -30,16 +30,21 @@
     });
   }
 
-  function pintarKpis(k, meses) {
+  function pintarKpis(k, meses, data) {
     document.getElementById('kpi-gasto').textContent = Viz.money(k.total_expense);
+    // Cuando falta un tipo de cambio, estos numeros son de una sola moneda.
+    // Decirlo en la tarjeta evita leer el total como si fuera todo.
+    const fuera = (data.currencies || []).filter(function (c) { return c !== data.currency; });
+    const soloUna = !data.converted && fuera.length ? ' · solo ' + data.currency : '';
     document.getElementById('kpi-periodo').textContent =
-      k.date_min ? k.date_min + ' - ' + k.date_max : 'Sin fechas en los datos';
+      (k.date_min ? k.date_min + ' - ' + k.date_max : 'Sin fechas en los datos') + soloUna;
     document.getElementById('kpi-mensual').textContent = Viz.money(k.monthly_average);
     document.getElementById('kpi-meses').textContent =
       meses === 1 ? 'sobre 1 mes' : 'sobre ' + meses + ' meses';
     document.getElementById('kpi-medio').textContent = Viz.money(k.average_expense);
     document.getElementById('kpi-movimientos').textContent =
-      k.transactions + ' movimientos · ' + k.categories + ' categorias · ' + k.people + ' personas';
+      k.transactions + ' movimientos · ' + k.categories + ' categorias · ' + k.people + ' personas' +
+      soloUna;
     const balance = document.getElementById('kpi-balance');
     balance.textContent = Viz.money(k.net);
     balance.className = 'value ' + (k.net >= 0 ? 'good' : 'bad');
@@ -208,6 +213,50 @@
     UI.toast(texto, esError ? 'error' : 'ok');
   }
 
+  /* Borrar un movimiento. Ningun lector de PDF acierta siempre: si se cuela
+     una linea de totales, tiene que poder sacarse sin borrar el archivo
+     entero. Como esas lineas suelen repetirse en todos los resumenes, el
+     dialogo ofrece borrar de una todos los que digan lo mismo. */
+  function celdaBorrar(r) {
+    const td = document.createElement('td');
+    const boton = document.createElement('button');
+    boton.type = 'button';
+    boton.className = 'fila-borrar';
+    boton.textContent = '\u00d7';
+    boton.title = 'Borrar este movimiento';
+    boton.setAttribute('aria-label', 'Borrar ' + (r.descripcion || 'movimiento'));
+    boton.addEventListener('click', function () { borrarMovimiento(r, boton); });
+    td.appendChild(boton);
+    return td;
+  }
+
+  async function borrarMovimiento(r, boton) {
+    const etiqueta = (r.descripcion || 'Sin descripcion') + ' · ' + Viz.money(r.importe, r.moneda);
+    const respuesta = await UI.confirmar({
+      titulo: 'Borrar movimiento',
+      mensaje: etiqueta + (r.fecha ? ' (' + UI.aTexto(r.fecha) + ')' : '') +
+        '. No se puede deshacer: para recuperarlo habria que volver a importar el archivo.',
+      aceptar: 'Borrar',
+      peligroso: true,
+      opcion: { etiqueta: 'Borrar todos los que digan lo mismo', marcado: false }
+    });
+    if (!respuesta || !respuesta.ok) return;
+    boton.disabled = true;
+    try {
+      const res = await fetch('/api/transacciones/' + r.id + '?similares=' + (respuesta.opcion ? 1 : 0),
+        { method: 'DELETE', headers: { 'Accept': 'application/json' } });
+      if (!res.ok) { throw new Error((await res.json()).detail || res.status); }
+      const data = await res.json();
+      avisar(data.borrados > 1
+        ? 'Se borraron ' + data.borrados + ' movimientos.'
+        : 'Movimiento borrado.');
+      cargar();
+    } catch (e) {
+      avisar('No se pudo borrar: ' + e.message, true);
+      boton.disabled = false;
+    }
+  }
+
   function pintarMovimientos(data, append) {
     const tbody = document.getElementById('tabla-movimientos');
     if (!append) tbody.innerHTML = '';
@@ -231,6 +280,7 @@
       const moneda = document.createElement('td');
       moneda.textContent = r.moneda || '';
       tr.appendChild(moneda);
+      tr.appendChild(celdaBorrar(r));
       tbody.appendChild(tr);
     });
     const mostrados = Math.min(data.offset + data.rows.length, data.total);
@@ -330,7 +380,7 @@
     vacio.hidden = !sinDatos;
     panel.hidden = sinDatos;
     if (sinDatos) { destruir(); return; }
-    pintarKpis(data.kpis, data.by_month.length);
+    pintarKpis(data.kpis, data.by_month.length, data);
     pintarGraficos(data);
     pintarTop(data.top_transactions);
     offset = 0;

@@ -71,14 +71,31 @@ def test_resumen_con_columnas_de_pesos_y_dolares():
     assert filas["WWW1.HOSPITALITALIANO"]["moneda"] == ""
     assert filas["WWW1.HOSPITALITALIANO"]["importe"] == "21.425,71"
 
-    # Ni el pago del resumen anterior ni los totales son movimientos.
-    assert len(df) == 5
+    # Ni el pago del resumen anterior ni los totales son movimientos, ni
+    # siquiera el que lleva fecha y parece uno mas.
+    assert len(df) == 7
     assert not any("SU PAGO" in d for d in df["descripcion"])
     assert not any("TOTAL A PAGAR" in d for d in df["descripcion"])
+    assert not any("TOTAL DEL MES" in d for d in df["descripcion"])
+    # Pero un comercio que empieza con esas letras no es una linea de total.
+    assert "TOTALGAS SRL" in set(df["descripcion"])
     # El numero de comprobante cambia en cada linea: si quedara pegado a la
     # descripcion, ningun comercio se repetiria y cada uno costaria una
     # consulta al modelo.
     assert not any("08783" in d for d in df["descripcion"])
+
+
+def test_las_hojas_siguientes_no_repiten_la_cabecera():
+    """La segunda hoja no trae la fila PESOS/DOLARES y se lee igual.
+
+    Buscando las columnas hoja por hoja, esas paginas se perdian enteras:
+    el total quedaba corto y nada lo avisaba.
+    """
+    df = extract_rows(resumen_tarjeta_dos_columnas())
+    filas = {r["descripcion"]: r for _, r in df.iterrows()}
+    assert filas["AWS AMAZON WEB SERVICES"]["moneda"] == "USD"
+    assert filas["AWS AMAZON WEB SERVICES"]["importe"] == "42,30"
+    assert filas["TOTALGAS SRL"]["moneda"] == ""
 
 
 def test_fechas_con_el_mes_en_letras():
