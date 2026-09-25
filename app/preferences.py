@@ -17,6 +17,17 @@ CAT_RULES = "rules"
 MODE_CURRENT = "current"
 MODE_HISTORICAL = "historical"
 
+PDF_READER = "pdf_reader"
+# Cuando usar el modelo para leer un PDF. El lector automatico es gratis,
+# instantaneo y comprobable, pero cada banco maqueta distinto; el modelo
+# entiende cualquier maquetacion pero cuesta y tarda. Lo que decide es la
+# aritmetica: si lo leido cuadra con los totales que declara el documento,
+# no hace falta gastar nada.
+PDF_AUTO = "auto"          # solo el lector automatico
+PDF_FALLBACK = "fallback"  # el modelo cuando el automatico no cuadra
+PDF_ALWAYS = "always"      # siempre el modelo
+PDF_READERS = {PDF_AUTO, PDF_FALLBACK, PDF_ALWAYS}
+
 
 def get_setting(db: Session, key: str, default: str = "") -> str:
     row = db.get(AppSetting, key)
@@ -78,4 +89,19 @@ def set_categorization_mode(db: Session, mode: str) -> str:
     if mode not in {CAT_AI, CAT_RULES}:
         raise ValueError("Estrategia de categorizacion no valida")
     set_setting(db, CATEGORIZATION, mode)
+    return mode
+
+
+def pdf_reader_mode(db: Session) -> str:
+    """Cuando leer un PDF con el modelo: 'auto', 'fallback' o 'always'."""
+    guardada = get_setting(db, PDF_READER)
+    if guardada in PDF_READERS:
+        return guardada
+    return PDF_FALLBACK if get_settings().chat_enabled else PDF_AUTO
+
+
+def set_pdf_reader_mode(db: Session, mode: str) -> str:
+    if mode not in PDF_READERS:
+        raise ValueError("Modo de lectura no valido")
+    set_setting(db, PDF_READER, mode)
     return mode

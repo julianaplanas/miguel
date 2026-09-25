@@ -132,6 +132,32 @@ movimiento; en el diálogo se puede marcar **borrar todos los que digan lo
 mismo**, que es como suelen aparecer las líneas que no deberían estar. El
 borrado es definitivo: para recuperarlas hay que volver a importar el archivo.
 
+## Quién lee el PDF
+
+Dos lectores, y la aritmética decide cuál se usa:
+
+1. **El automático** (`app/pdf_import.py`) agrupa los importes por su posición
+   para reconstruir las columnas de la tabla, y las cabeceras solo les ponen la
+   moneda. Es gratis, instantáneo y comprobable.
+2. Después se compara lo leído con **los totales que declara el propio
+   resumen**. Si coincide al centavo, listo: no se gasta nada.
+3. Si no coincide, **el modelo lee cada hoja** (`app/pdf_llm.py`) con la
+   maquetación conservada —que es lo que deja ver qué importe está bajo qué
+   columna— y devuelve los movimientos y los totales. Se vuelve a comparar.
+4. El modelo **no gana por ser el modelo**: su lectura reemplaza a la automática
+   solo si cuadra con los totales o si al menos encuentra más filas.
+
+Lo que el modelo nunca hace es decidir si la lectura está bien: eso lo dice una
+resta. Un modelo verificando a otro modelo no agrega nada. Y los importes que
+devuelve pasan por el mismo molino que los de un CSV (`parse_frame`): mismo
+signo, misma detección de moneda, mismas fechas.
+
+Se elige en **/ajustes → Cómo se leen los PDF**: solo el automático (nada sale
+del servidor), el modelo cuando no cuadra (por defecto), o siempre el modelo.
+En la revisión de cada archivo hay además un botón para pedírselo al modelo esa
+vez, y otro para volver atrás. La lectura del modelo queda guardada en el
+archivo, así que no se paga de nuevo al previsualizar ni al reimportar.
+
 ## Revisar antes de importar
 
 Subir y ver el resultado en los totales son dos pasos distintos. Al subir, la

@@ -61,7 +61,26 @@
         {% endif %}
 
 
+        <div class="file-meta" style="margin-bottom:8px">
+          {% if reader == 'modelo' %}
+          Leido por <strong>el modelo</strong>, hoja por hoja.
+          {% else %}
+          Leido por el <strong>lector automatico</strong> (gratis e instantaneo).
+          {% endif %}
+        </div>
         <div class="file-actions" style="margin-top:10px">
+          {% if chat_enabled and es_pdf %}
+            {% if reader == 'modelo' %}
+            <button type="submit" name="accion" value="lector-automatico" class="btn-sm"
+                    data-ocupado="Releyendo...">Volver al lector automatico</button>
+            {% else %}
+            <button type="submit" name="accion" value="leer-con-modelo" class="btn-sm"
+                    data-ocupado="Leyendo con el modelo..."
+                    title="Le pasa cada hoja al modelo para que extraiga los movimientos">
+              Leer con el modelo
+            </button>
+            {% endif %}
+          {% endif %}
           {% if chat_enabled %}
           <button type="submit" name="accion" value="modelo" class="btn-sm"
                   data-ocupado="Preguntando..."
@@ -96,6 +115,12 @@
       Ningun total del documento coincide con lo que se va a importar. Puede ser normal
       (un total que incluye impuestos o el saldo anterior), pero conviene mirar la diferencia:
       si es igual al importe de una fila, esa fila falta o sobra.
+      {% if chat_enabled and es_pdf and reader != 'modelo' %}
+      <button type="submit" name="accion" value="leer-con-modelo" class="btn-sm"
+              data-ocupado="Leyendo con el modelo..." style="margin-left:8px">
+        Leer con el modelo
+      </button>
+      {% endif %}
     </div>
     {% endif %}
     <div class="table-wrap">

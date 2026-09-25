@@ -126,6 +126,58 @@
 
   <div class="card">
     <div class="card-head">
+      <h2>Como se leen los PDF</h2>
+      <span class="hint">Los CSV y Excel no pasan por aca: ya vienen en columnas</span>
+    </div>
+    <form method="post" action="/ajustes/lector-pdf" class="stack" style="gap:10px">
+      <label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer">
+        <input type="radio" name="mode" value="{{ pdf_fallback }}" {{ 'checked' if pdf_reader == pdf_fallback }}
+               style="margin-top:4px; min-width:auto" {{ 'disabled' if not chat_enabled }}>
+        <span>
+          <strong>El modelo cuando la lectura automatica no cuadra</strong>
+          {% if not chat_enabled %}<span class="badge off">necesita OPENROUTER_API_KEY</span>{% endif %}<br>
+          <span style="color:var(--text-secondary); font-size:13px">
+            Primero lee el lector automatico, que es gratis e instantaneo. Despues se compara
+            lo leido con los totales que declara el propio resumen: si coincide al centavo, se
+            queda con eso y no gasta nada. Si no, le pasa cada hoja al modelo y vuelve a
+            comparar. Es la opcion recomendada: paga solo cuando hace falta.
+          </span>
+        </span>
+      </label>
+      <label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer">
+        <input type="radio" name="mode" value="{{ pdf_always }}" {{ 'checked' if pdf_reader == pdf_always }}
+               style="margin-top:4px; min-width:auto" {{ 'disabled' if not chat_enabled }}>
+        <span>
+          <strong>Siempre el modelo</strong><br>
+          <span style="color:var(--text-secondary); font-size:13px">
+            Para bancos con una maquetacion que al lector automatico no le entra. Cuesta una
+            llamada por hoja con movimientos, cada vez que subis un archivo.
+          </span>
+        </span>
+      </label>
+      <label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer">
+        <input type="radio" name="mode" value="{{ pdf_auto }}" {{ 'checked' if pdf_reader == pdf_auto }}
+               style="margin-top:4px; min-width:auto">
+        <span>
+          <strong>Solo el lector automatico</strong><br>
+          <span style="color:var(--text-secondary); font-size:13px">
+            Nada sale de tu servidor. Si un resumen no se lee bien, en la revision hay un boton
+            para pedirselo al modelo esa vez.
+          </span>
+        </span>
+      </label>
+      <div>
+        <button type="submit" class="btn-primary btn-sm">Guardar</button>
+        <span class="file-meta">
+          El modelo nunca decide si la lectura esta bien: eso lo dice la suma contra los
+          totales del resumen.
+        </span>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
       <h2>Como se convierte</h2>
       <span class="hint">Solo afecta a la vista "Todo en {{ base }}"</span>
     </div>

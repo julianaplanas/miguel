@@ -23,12 +23,17 @@ from app.preferences import (
     CAT_RULES,
     MODE_CURRENT,
     MODE_HISTORICAL,
+    PDF_ALWAYS,
+    PDF_AUTO,
+    PDF_FALLBACK,
     base_currency,
     categorization_mode,
     conversion_mode,
+    pdf_reader_mode,
     set_base_currency,
     set_categorization_mode,
     set_conversion_mode,
+    set_pdf_reader_mode,
 )
 
 router = APIRouter(prefix="/ajustes")
@@ -135,6 +140,10 @@ def settings_page(
             "categorization": categorization_mode(db),
             "cat_ai": CAT_AI,
             "cat_rules": CAT_RULES,
+            "pdf_reader": pdf_reader_mode(db),
+            "pdf_auto": PDF_AUTO,
+            "pdf_fallback": PDF_FALLBACK,
+            "pdf_always": PDF_ALWAYS,
             "chat_enabled": get_settings().chat_enabled,
             "can_refresh_all": any(f["auto"] or f["in_use"] for f in filas),
             "message": message,
@@ -346,6 +355,25 @@ def save_categorization(
             "sola vez y la respuesta queda guardada como regla."
         )
     return _redirect(message="Las categorias salen solo de las reglas, sin consultar al modelo.")
+
+
+@router.post("/lector-pdf")
+def save_pdf_reader(
+    db: Session = Depends(get_db),
+    _: str = Depends(require_user),
+    mode: str = Form(...),
+):
+    try:
+        elegido = set_pdf_reader_mode(db, mode)
+    except ValueError:
+        return _redirect(error="Modo de lectura no valido")
+    mensajes = {
+        PDF_AUTO: "Los PDF los lee solo el lector automatico.",
+        PDF_FALLBACK: "Si la lectura automatica no cuadra con los totales del resumen, "
+        "la hace el modelo.",
+        PDF_ALWAYS: "Los PDF los lee siempre el modelo. Cuesta una llamada por hoja.",
+    }
+    return _redirect(message=mensajes[elegido])
 
 
 def _storage_info() -> dict:

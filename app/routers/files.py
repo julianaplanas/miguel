@@ -15,7 +15,15 @@ from app import currency as cur
 from app.config import get_settings
 from app.deps import require_user, templates
 from app.llm import OpenRouterError, find_non_movements
-from app.preferences import CAT_AI, base_currency, categorization_mode
+from app.pdf_llm import extract_pages
+from app.preferences import (
+    CAT_AI,
+    PDF_ALWAYS,
+    PDF_AUTO,
+    base_currency,
+    categorization_mode,
+    pdf_reader_mode,
+)
 from app.categorize import NOT_A_MOVEMENT, SOURCE_AI, is_not_movement, normalize
 from app.rules import (
     ai_categorize_pending,
@@ -25,7 +33,7 @@ from app.rules import (
     load_rules,
     recategorize,
 )
-from app.ingest import FIELDS, parse_amount, parse_file
+from app.ingest import FIELDS, parse_amount, parse_file, parse_frame
 from app.db import get_db
 from app.models import Transaction, UploadedFile
 
@@ -202,6 +210,9 @@ async def upload(
 
     importados: list[UploadedFile] = []
     fallos: list[str] = []
+    leidos_por_modelo: list[str] = []
+    avisos_modelo: list[str] = []
+    modo_pdf = pdf_reader_mode(db)
 
     for archivo in files:
         nombre = archivo.filename or "sin nombre"
@@ -236,6 +247,39 @@ async def upload(
             )
             record.column_mapping = json.dumps(parsed.mapping, ensure_ascii=False)
             record.detected_columns = json.dumps(parsed.columns, ensure_ascii=False)
+
+            # Si la lectura automatica no cuadra con los totales que declara
+            # el documento, la lee el modelo. Se gasta una llamada solo
+            # cuando la aritmetica demuestra que hace falta.
+            if modo_pdf != PDF_AUTO and suffix == ".pdf":
+                forzar = modo_pdf == PDF_ALWAYS
+                if forzar or not _cuadra(db, parsed, moneda):
+                    fallo = await _leer_con_modelo(db, record, moneda)
+                    if not fallo:
+                        try:
+                            del_modelo = _ai_parsed(record, persona, moneda)
+                        except Exception:  # noqa: BLE001 - se sigue con el automatico
+                            del_modelo = None
+                        # El modelo no gana por ser el modelo: se queda solo
+                        # si cuadra con los totales del documento o si al
+                        # menos encuentra mas filas que el lector automatico.
+                        mejora = del_modelo is not None and (
+                            forzar
+                            or _cuadra(db, del_modelo, moneda)
+                            or len(del_modelo.rows) > len(parsed.rows)
+                        )
+                        if mejora:
+                            parsed = del_modelo
+                            leidos_por_modelo.append(nombre)
+                        else:
+                            record.reader = ""
+                            record.ai_rows = ""
+                            avisos_modelo.append(
+                                f"{nombre}: el modelo no mejoro la lectura automatica."
+                            )
+                    else:
+                        avisos_modelo.append(f"{nombre}: {fallo}")
+
             if con_revision:
                 # Se guarda lo leido para la pantalla de revision, pero no
                 # se crea ningun movimiento hasta que se confirme.
@@ -274,6 +318,10 @@ async def upload(
                 f"{len(importados)} archivos leidos ({movimientos} filas). "
                 "Revisalos uno por uno antes de importar."
             )
+        if leidos_por_modelo:
+            mensaje += f" {len(leidos_por_modelo)} lo leyo el modelo."
+        if avisos_modelo:
+            mensaje += " " + " ".join(avisos_modelo)
         if fallos:
             mensaje += " No se pudieron leer: " + "; ".join(fallos) + "."
         return RedirectResponse(
@@ -321,6 +369,83 @@ async def _reimportar(db: Session, record: UploadedFile) -> str:
     return ""
 
 
+AI_MAPPING = {
+    "date": "fecha",
+    "description": "descripcion",
+    "amount": "importe",
+    "currency": "moneda",
+    "invert_sign": False,
+}
+
+
+def _ai_parsed(record: UploadedFile, persona: str, moneda: str):
+    """ParsedFile a partir de lo que extrajo el modelo, ya guardado."""
+    import pandas as pd
+
+    datos = json.loads(record.ai_rows or "{}")
+    movimientos = datos.get("movimientos") or []
+    if not movimientos:
+        raise ValueError("el modelo no devolvio movimientos")
+    df = pd.DataFrame(movimientos, columns=["fecha", "descripcion", "importe", "moneda"])
+    mapping = dict(AI_MAPPING)
+    mapping["default_currency"] = moneda
+    # Las filas del modelo pasan por el mismo molino que las de un CSV:
+    # mismo signo, misma deteccion de moneda, mismas fechas.
+    parsed = parse_frame(
+        df,
+        mapping=mapping,
+        default_person=persona,
+        default_currency=moneda,
+        skipped=[
+            {
+                "tipo": "total",
+                "fecha": "",
+                "descripcion": t.get("descripcion", ""),
+                "importes": [{"importe": t.get("importe", ""), "moneda": t.get("moneda", "")}],
+            }
+            for t in datos.get("totales") or []
+        ],
+    )
+    avisos = datos.get("errores") or []
+    if avisos:
+        parsed.warnings.extend(f"El modelo no pudo leer una hoja: {a}" for a in avisos[:3])
+    return parsed
+
+
+def _cuadra(db: Session, parsed, moneda: str) -> bool:
+    """Si algun total declarado por el documento coincide con lo leido.
+
+    Es la comprobacion que decide si hace falta gastar una llamada al
+    modelo: si la lectura automatica ya cuadra al centavo, no hay nada
+    que mejorar.
+    """
+    netos: dict[str, float] = {}
+    for row in parsed.rows:
+        codigo = (row.get("currency") or "").upper() or moneda
+        netos[codigo] = round(netos.get(codigo, 0.0) + float(row.get("amount") or 0.0), 2)
+    return any(d["cuadra"] for d in _declarados(parsed, moneda, netos))
+
+
+async def _leer_con_modelo(db: Session, record: UploadedFile, moneda: str) -> str:
+    """Le pide al modelo que lea el PDF y guarda sus filas en el archivo."""
+    if not get_settings().chat_enabled:
+        return "No hay OPENROUTER_API_KEY configurada."
+    path = _stored_file(record)
+    if path is None or path.suffix.lower() != ".pdf":
+        return "Solo se puede leer con el modelo un PDF guardado."
+    try:
+        datos = await extract_pages(path.read_bytes(), moneda)
+    except OpenRouterError as exc:
+        return f"El modelo no pudo leer el archivo: {exc}"
+    if not datos.get("movimientos"):
+        detalle = "; ".join(datos.get("errores") or []) or "no encontro movimientos"
+        return f"El modelo no pudo leer el archivo: {detalle}"
+
+    record.ai_rows = json.dumps(datos, ensure_ascii=False)
+    record.reader = "modelo"
+    return ""
+
+
 def _mapping_from_form(valores: dict[str, str], base: str) -> dict:
     """Mapeo de columnas tal como viene del formulario de revision."""
     mapping = {campo: valor for campo, valor in valores.items() if campo in FIELDS and valor}
@@ -335,15 +460,18 @@ def _preview(db: Session, record: UploadedFile, mapping: dict | None, persona: s
     Es la misma lectura que hace la importacion: lo que se ve aca es
     exactamente lo que se va a guardar, no una aproximacion.
     """
-    path = _stored_file(record)
-    if path is None:
-        raise ValueError("el archivo original ya no esta guardado")
-    parsed = parse_file(
-        path,
-        mapping=mapping or None,
-        default_person=persona,
-        default_currency=moneda,
-    )
+    if record.reader == "modelo" and record.ai_rows:
+        parsed = _ai_parsed(record, persona, moneda)
+    else:
+        path = _stored_file(record)
+        if path is None:
+            raise ValueError("el archivo original ya no esta guardado")
+        parsed = parse_file(
+            path,
+            mapping=mapping or None,
+            default_person=persona,
+            default_currency=moneda,
+        )
     con_ia = categorization_mode(db) == CAT_AI and get_settings().chat_enabled
     categorize_rows(parsed.rows, load_rules(db, include_defaults=not con_ia))
     return parsed
@@ -539,6 +667,8 @@ def _preview_context(db: Session, record: UploadedFile, parsed, excluidas: set[i
         "base_currency": base_currency(db),
         "pendientes": pendientes,
         "chat_enabled": get_settings().chat_enabled,
+        "reader": record.reader or "auto",
+        "es_pdf": str(record.filename or "").lower().endswith(".pdf"),
         "active_page": "files",
     }
 
@@ -615,6 +745,25 @@ async def review_action(
         )
 
     aviso = ""
+    if accion == "leer-con-modelo":
+        fallo = await _leer_con_modelo(db, record, moneda)
+        db.commit()
+        destino = f"/archivos/{record.id}/revisar"
+        if fallo:
+            destino += f"?error={quote(fallo)}"
+        else:
+            destino += f"?message={quote('Releido con el modelo. Compara los totales.')}"
+        return RedirectResponse(destino, status_code=status.HTTP_303_SEE_OTHER)
+
+    if accion == "lector-automatico":
+        record.reader = ""
+        record.ai_rows = ""
+        db.commit()
+        return RedirectResponse(
+            f"/archivos/{record.id}/revisar?message={quote('Vuelto al lector automatico.')}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
     if accion == "modelo":
         # Se le pregunta al modelo cuales de estas lineas no son movimientos.
         # La respuesta queda como regla, asi que al volver a leer ya vienen

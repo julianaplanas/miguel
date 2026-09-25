@@ -250,7 +250,31 @@ def parse_file(
     default_currency: str = "",
     raw: bytes | None = None,
 ) -> ParsedFile:
-    """Convierte un archivo en filas normalizadas listas para guardar.
+    """Convierte un archivo en filas normalizadas listas para guardar."""
+    saltadas: list[dict[str, Any]] = []
+    df = read_table(path, raw=raw, skipped=saltadas)
+    return parse_frame(
+        df,
+        mapping=mapping,
+        default_person=default_person,
+        default_currency=default_currency,
+        skipped=saltadas,
+    )
+
+
+def parse_frame(
+    df: pd.DataFrame,
+    mapping: dict[str, Any] | None = None,
+    default_person: str = "",
+    default_currency: str = "",
+    skipped: list[dict[str, Any]] | None = None,
+) -> ParsedFile:
+    """Normaliza una tabla ya leida (de un archivo o de donde sea).
+
+    Esta separado de `parse_file` para que las filas que extrae el modelo
+    pasen por exactamente el mismo molino que las de un CSV: mismo signo,
+    misma deteccion de moneda, mismas fechas. Lo que cambia es de donde
+    salen las filas, no que se hace con ellas.
 
     Convencion de signo: el importe guardado es positivo cuando es un gasto y
     negativo cuando es un ingreso, independientemente de como venga el archivo.
@@ -258,8 +282,7 @@ def parse_file(
     La moneda de cada fila sale, por orden: de la columna de moneda, de un
     simbolo dentro del propio importe ('US$ 1.200'), o de `default_currency`.
     """
-    saltadas: list[str] = []
-    df = read_table(path, raw=raw, skipped=saltadas)
+    saltadas = list(skipped or [])
     df = df.dropna(how="all")
     columns = [str(c) for c in df.columns]
     df.columns = columns

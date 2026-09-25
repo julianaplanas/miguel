@@ -33,7 +33,11 @@ _ADDED_COLUMNS: dict[str, dict[str, tuple[str, str]]] = {
     "exchange_rates": {"source": ("VARCHAR(64)", "'manual'")},
     # Los archivos que ya estaban se dan por importados: sus movimientos
     # existen desde antes de que hubiera pantalla de revision.
-    "uploaded_files": {"imported": ("BOOLEAN", "1")},
+    "uploaded_files": {
+        "imported": ("BOOLEAN", "1"),
+        "reader": ("VARCHAR(16)", "''"),
+        "ai_rows": ("TEXT", "''"),
+    },
     # Una categoria que venia del archivo se respeta ('file'); las que
     # quedaron sin categorizar se marcan vacias para que el recategorizado
     # si pueda tocarlas.

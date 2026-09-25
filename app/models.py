@@ -45,6 +45,11 @@ class UploadedFile(Base):
     # revision. Mientras sea False no tiene movimientos: no esta en el
     # dashboard ni en los totales.
     imported: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Quien leyo el archivo: "" (el lector automatico) o "modelo". Cuando
+    # lo leyo el modelo, sus filas quedan guardadas aca en JSON para no
+    # volver a pagar la lectura en cada vista previa ni al reimportar.
+    reader: Mapped[str] = mapped_column(String(16), default="")
+    ai_rows: Mapped[str] = mapped_column(Text, default="")
 
     transactions: Mapped[list["Transaction"]] = relationship(
         back_populates="file", cascade="all, delete-orphan", passive_deletes=True
