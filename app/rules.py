@@ -1,10 +1,11 @@
 """Aplicacion de las reglas de categorizacion sobre los movimientos."""
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.categorize import (
+    NOT_A_MOVEMENT,
     SOURCE_AI,
     SOURCE_FILE,
     SOURCE_MANUAL,
@@ -14,11 +15,12 @@ from app.categorize import (
     Rule,
     categorize,
     default_rules,
+    is_not_movement,
     is_uncategorized,
     normalize,
     sort_rules,
 )
-from app.models import CategoryRule, Transaction
+from app.models import CategoryRule, Transaction, UploadedFile
 
 # Origenes que el recategorizado puede sobrescribir. Lo que el usuario
 # corrigio a mano y lo que vino con categoria en el archivo se respetan.
@@ -76,6 +78,11 @@ def recategorize(db: Session, only_uncategorized: bool = False) -> int:
         if resultado is None:
             continue
         categoria, origen = resultado
+        if is_not_movement(categoria):
+            # Descartar es borrar, y borrar no puede ser un efecto colateral
+            # de "recategorizar". Lo hace drop_non_movements, que se llama
+            # donde el usuario espera que algo desaparezca.
+            continue
         if tx.category == categoria and tx.category_source == origen:
             continue
         tx.category = categoria
@@ -100,6 +107,72 @@ def apply_rule(db: Session, pattern: str, category: str) -> int:
             cambiados += 1
     db.commit()
     return cambiados
+
+
+def refresh_counts(db: Session, file_ids: set[int]) -> None:
+    """Recalcula cuantos movimientos le quedan a cada archivo.
+
+    El numero se muestra en la pantalla de Archivos; si no se actualiza al
+    borrar, dice mas de los que hay.
+    """
+    for file_id in file_ids:
+        record = db.get(UploadedFile, file_id)
+        if record is None:
+            continue
+        record.row_count = (
+            db.execute(
+                select(func.count(Transaction.id)).where(Transaction.file_id == file_id)
+            ).scalar()
+            or 0
+        )
+
+
+def _delete_where(db: Session, coincide) -> int:
+    borrados = 0
+    archivos: set[int] = set()
+    for tx in db.execute(select(Transaction)).scalars().all():
+        if coincide(normalize(tx.description or "")):
+            if tx.file_id:
+                archivos.add(tx.file_id)
+            db.delete(tx)
+            borrados += 1
+    if borrados:
+        db.flush()
+        refresh_counts(db, archivos)
+    db.commit()
+    return borrados
+
+
+def delete_matching(db: Session, pattern: str) -> int:
+    """Borra los movimientos cuya descripcion contenga ese patron."""
+    patron = normalize(pattern)
+    if not patron:
+        return 0
+    return _delete_where(db, lambda descripcion: patron in descripcion)
+
+
+def drop_non_movements(db: Session) -> int:
+    """Borra lo que alguna regla marca como 'no es un movimiento'.
+
+    Las lineas de totales y saldos no son gastos: si entran, inflan el
+    total. Cuales son no se puede saber de antemano (cada banco las
+    escribe distinto), asi que lo decide el modelo una vez por descripcion
+    y queda guardado como regla. Esto aplica esa decision a lo que ya esta
+    importado y a lo que se importe despues.
+    """
+    patrones = [
+        r.pattern
+        for r in db.execute(select(CategoryRule)).scalars().all()
+        if is_not_movement(r.category)
+    ]
+    if not patrones:
+        return 0
+    normalizados = [normalize(p) for p in patrones if normalize(p)]
+    if not normalizados:
+        return 0
+    return _delete_where(
+        db, lambda descripcion: any(p in descripcion for p in normalizados)
+    )
 
 
 def save_rule(db: Session, pattern: str, category: str, source: str = "manual") -> CategoryRule:
@@ -156,13 +229,19 @@ def uncategorized_descriptions(db: Session, limit: int = 200) -> list[tuple[str,
 AI_CHUNK = 50
 
 
-async def ai_categorize_pending(db: Session, limit: int = 300) -> tuple[int, int]:
+async def ai_categorize_pending(db: Session, limit: int = 300) -> tuple[int, int, int]:
     """Pregunta al modelo por las descripciones sin categorizar.
 
     Se le mandan solo las descripciones DISTINTAS, con su importe y si son
     gasto o ingreso, y cada respuesta se guarda como regla: la proxima vez
     que aparezca ese comercio ya no hace falta preguntar. Devuelve
-    (reglas creadas, movimientos actualizados).
+    (reglas creadas, movimientos actualizados, movimientos descartados).
+
+    El modelo tambien puede contestar que una descripcion no es un
+    movimiento (un total, un saldo, una cabecera repetida). Esa respuesta
+    se guarda igual que cualquier otra y esas lineas se borran: es la
+    alternativa a mantener a mano una lista de como escribe sus totales
+    cada banco.
 
     Si falla un trozo se sigue con los demas; solo se propaga el error
     cuando no se pudo clasificar nada.
@@ -178,10 +257,11 @@ async def ai_categorize_pending(db: Session, limit: int = 300) -> tuple[int, int
         for fila in description_summary(db, only_uncategorized=True, limit=limit)
     ]
     if not pendientes:
-        return 0, 0
+        return 0, 0, 0
 
     creadas = 0
     aplicados = 0
+    descartados = 0
     errores: list[str] = []
     for inicio in range(0, len(pendientes), AI_CHUNK):
         trozo = pendientes[inicio : inicio + AI_CHUNK]
@@ -194,16 +274,25 @@ async def ai_categorize_pending(db: Session, limit: int = 300) -> tuple[int, int
             categoria = (categoria or "").strip()
             if not categoria or is_uncategorized(categoria):
                 continue
+            descartar = is_not_movement(categoria)
             try:
-                save_rule(db, descripcion, categoria, source=SOURCE_AI)
+                save_rule(
+                    db,
+                    descripcion,
+                    NOT_A_MOVEMENT if descartar else categoria,
+                    source=SOURCE_AI,
+                )
             except ValueError:
                 continue
             creadas += 1
-            aplicados += apply_rule(db, descripcion, categoria)
+            if descartar:
+                descartados += delete_matching(db, descripcion)
+            else:
+                aplicados += apply_rule(db, descripcion, categoria)
 
     if errores and not creadas:
         raise OpenRouterError(errores[0])
-    return creadas, aplicados
+    return creadas, aplicados, descartados
 
 
 ORIGIN_LABELS = {

@@ -36,6 +36,31 @@
   </div>
 </form>
 
+{% if files %}
+<div class="card" style="margin-bottom:20px">
+  <div class="file-row">
+    <div>
+      <strong>Reprocesar todo</strong>
+      <div class="file-meta">
+        Vuelve a leer los archivos guardados con el lector actual y con las reglas
+        de hoy. Sirve cuando mejora la lectura de un formato: no hay que borrar y
+        volver a subir. Las categorias corregidas a mano se conservan.
+      </div>
+    </div>
+    <div class="file-actions">
+      <form method="post" action="/archivos/reprocesar"
+            data-confirmar-titulo="Reprocesar todo"
+            data-confirmar="Se vuelve a leer {{ files | length }} archivo{{ '' if files | length == 1 else 's' }}. Los movimientos se reemplazan por los que salgan ahora."
+            data-confirmar-aceptar="Reprocesar">
+        <button type="submit" class="btn-sm">
+          Reprocesar {{ files | length }} archivo{{ '' if files | length == 1 else 's' }}
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% if not files %}
 <div class="card empty">
   <h2>Aun no hay archivos</h2>
@@ -67,6 +92,10 @@
         <form method="post" action="/archivos/{{ f.id }}/toggle">
           <input type="hidden" name="redirect_to" value="/archivos">
           <button type="submit" class="btn-sm">{{ 'Desactivar' if f.is_active else 'Activar' }}</button>
+        </form>
+        <form method="post" action="/archivos/{{ f.id }}/reprocesar">
+          <button type="submit" class="btn-sm"
+                  title="Vuelve a leer el archivo guardado con el lector actual">Reprocesar</button>
         </form>
         <a class="btn btn-sm" href="/archivos/{{ f.id }}/descargar">Descargar</a>
         <form method="post" action="/archivos/{{ f.id }}/delete"

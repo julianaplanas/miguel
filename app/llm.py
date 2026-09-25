@@ -188,6 +188,13 @@ Reglas:
   consumo.
 - Si la descripcion no alcanza (un numero de operacion suelto, un codigo
   interno), devolve "Sin categoria". No adivines.
+- Algunas lineas no son movimientos aunque vengan con fecha e importe: los
+  totales y subtotales del resumen, los saldos (anterior, actual, pendiente),
+  los arrastres de saldo, las cabeceras repetidas, los limites de compra y el
+  pago del propio resumen de tarjeta, que cancela consumos ya listados. Para
+  esas devolve exactamente "No es un movimiento": se descartan, porque
+  contarlas duplica gasto que ya esta en las lineas de abajo. Ante la duda,
+  categorizala normal: es peor borrar un gasto real que dejar una linea de mas.
 - Responde SOLO con un objeto JSON {{"descripcion": "categoria", ...}}, con
   una clave por descripcion recibida y la descripcion EXACTA como clave, sin
   texto alrededor ni bloques de codigo.

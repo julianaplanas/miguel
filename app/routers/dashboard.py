@@ -14,7 +14,7 @@ from app.categorize import SOURCE_MANUAL, SUGGESTED, UNCATEGORIZED, normalize
 from app.db import get_db
 from app.deps import require_user, templates
 from app.models import Transaction, UploadedFile
-from app.rules import apply_rule, save_rule
+from app.rules import apply_rule, refresh_counts, save_rule
 
 router = APIRouter()
 
@@ -215,18 +215,9 @@ def delete_transaction(
     for movimiento in objetivo:
         db.delete(movimiento)
     db.flush()
-
     # El contador del archivo se muestra en la pantalla de Archivos: si no
     # se actualiza, dice mas movimientos de los que quedan.
-    for file_id in archivos:
-        record = db.get(UploadedFile, file_id)
-        if record:
-            record.row_count = (
-                db.execute(
-                    select(func.count(Transaction.id)).where(Transaction.file_id == file_id)
-                ).scalar()
-                or 0
-            )
+    refresh_counts(db, archivos)
     db.commit()
     return {"borrados": len(objetivo), "descripcion": descripcion}
 

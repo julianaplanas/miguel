@@ -112,6 +112,17 @@ lo dice en vez de importar basura), y cada banco maqueta distinto. Si tu resumen
 no sale bien, el mapeo de columnas se corrige a mano desde Archivos, o exportá
 el CSV desde el homebanking, que siempre es más fiable.
 
+Las líneas que no son movimientos —totales, saldos, arrastres, el pago del
+propio resumen— **las decide el modelo**, no una lista de palabras: se le
+pregunta una vez por descripción y la respuesta queda guardada como regla, así
+que esa línea no se vuelve a importar ni a preguntar. Sin `OPENROUTER_API_KEY`
+queda un filtro mínimo (lo que empieza por total/saldo/suma). Si se equivoca,
+creá una regla a mano con la categoría que corresponda: la regla manual gana.
+
+**Reprocesar** vuelve a leer los archivos guardados con el lector y las reglas
+de hoy, sin tener que borrarlos y subirlos otra vez. Está por archivo y para
+todos juntos, arriba en Archivos.
+
 En la tabla de movimientos, la cruz del final de cada fila borra ese
 movimiento; en el diálogo se puede marcar **borrar todos los que digan lo
 mismo**, que es como suelen aparecer las líneas que no deberían estar. El

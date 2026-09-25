@@ -16,7 +16,14 @@ from app.config import get_settings
 from app.deps import require_user, templates
 from app.llm import OpenRouterError
 from app.preferences import CAT_AI, base_currency, categorization_mode
-from app.rules import ai_categorize_pending, categorize_rows, load_rules, recategorize
+from app.categorize import is_not_movement
+from app.rules import (
+    ai_categorize_pending,
+    categorize_rows,
+    drop_non_movements,
+    load_rules,
+    recategorize,
+)
 from app.ingest import FIELDS, parse_file
 from app.db import get_db
 from app.models import Transaction, UploadedFile
@@ -59,6 +66,14 @@ def _import_rows(db: Session, record: UploadedFile, parsed) -> None:
     # tambien las reglas de fabrica.
     con_ia = categorization_mode(db) == CAT_AI and get_settings().chat_enabled
     categorizadas = categorize_rows(parsed.rows, load_rules(db, include_defaults=not con_ia))
+
+    # Lo que ya se decidio antes que no era un movimiento (un total, un
+    # saldo) no vuelve a entrar: la decision esta guardada como regla, asi
+    # que reimportar el archivo no lo resucita.
+    descartadas = [r for r in parsed.rows if is_not_movement(r.get("category"))]
+    if descartadas:
+        parsed.rows[:] = [r for r in parsed.rows if not is_not_movement(r.get("category"))]
+
     db.execute(delete(Transaction).where(Transaction.file_id == record.id))
     db.add_all(
         [
@@ -77,20 +92,34 @@ def _import_rows(db: Session, record: UploadedFile, parsed) -> None:
             for row in parsed.rows
         ]
     )
-    record.row_count = parsed.row_count
+    record.row_count = len(parsed.rows)
     record.column_mapping = json.dumps(parsed.mapping, ensure_ascii=False)
     record.detected_columns = json.dumps(parsed.columns, ensure_ascii=False)
-    record.notes = " ".join(parsed.warnings)[:1000]
+    avisos = list(parsed.warnings)
+    if descartadas:
+        avisos.append(f"Se descartaron {len(descartadas)} lineas que no son movimientos.")
+    record.notes = " ".join(avisos)[:1000]
+
+
+def _descartadas(cuantas: int) -> str:
+    if not cuantas:
+        return ""
+    return (
+        f" Se descartaron {cuantas} lineas que no son movimientos "
+        "(totales, saldos y similares)."
+    )
 
 
 async def _categorize_after_import(db: Session) -> str:
     """Categoriza lo que quedo pendiente y devuelve un resumen para el aviso."""
     if categorization_mode(db) != CAT_AI or not get_settings().chat_enabled:
         pendientes = recategorize(db, only_uncategorized=True)
-        return f". Se categorizaron {pendientes} por reglas." if pendientes else ""
+        fuera = drop_non_movements(db)
+        aviso = f". Se categorizaron {pendientes} por reglas." if pendientes else ""
+        return aviso + _descartadas(fuera)
 
     try:
-        creadas, aplicados = await ai_categorize_pending(db)
+        creadas, aplicados, descartados = await ai_categorize_pending(db)
     except OpenRouterError as exc:
         # Que falle el modelo no puede tumbar la importacion: los
         # movimientos ya estan guardados. Se cae a las reglas de fabrica.
@@ -105,7 +134,8 @@ async def _categorize_after_import(db: Session) -> str:
         partes.append(f"{aplicados} categorizados por el modelo")
     if porreglas:
         partes.append(f"{porreglas} por reglas")
-    return f". {' y '.join(partes)}." if partes else ""
+    aviso = f". {' y '.join(partes)}." if partes else ""
+    return aviso + _descartadas(descartados)
 
 
 @router.get("", response_class=HTMLResponse)
@@ -226,6 +256,94 @@ async def upload(
     if fallos:
         mensaje += " No se pudieron importar: " + "; ".join(fallos) + "."
 
+    return RedirectResponse(
+        f"/archivos?message={quote(mensaje)}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+async def _reimportar(db: Session, record: UploadedFile) -> str:
+    """Vuelve a leer el archivo guardado con el codigo y el mapeo de ahora.
+
+    El archivo original se guarda justamente para esto: cuando mejora el
+    lector (un banco nuevo, un formato de fecha que antes no entendia) no
+    hace falta borrar y volver a subir.
+    """
+    path = _stored_file(record)
+    if path is None:
+        return "el archivo original ya no esta guardado"
+    mapping = json.loads(record.column_mapping or "{}")
+    try:
+        parsed = parse_file(
+            path,
+            mapping=mapping or None,
+            default_person=record.default_person or "",
+            default_currency=mapping.get("default_currency") or base_currency(db),
+        )
+        _import_rows(db, record, parsed)
+        db.commit()
+    except Exception as exc:  # noqa: BLE001 - el motivo se le muestra al usuario
+        db.rollback()
+        return str(exc)
+    return ""
+
+
+@router.post("/reprocesar")
+async def reprocess_all(db: Session = Depends(get_db), _: str = Depends(require_user)):
+    """Reprocesa todos los archivos con el lector actual."""
+    records = db.execute(select(UploadedFile)).scalars().all()
+    if not records:
+        return RedirectResponse(
+            "/archivos?error=No hay archivos para reprocesar",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    hechos: list[UploadedFile] = []
+    fallos: list[str] = []
+    for record in records:
+        error = await _reimportar(db, record)
+        if error:
+            fallos.append(f"{record.filename} ({error})")
+        else:
+            hechos.append(record)
+
+    if not hechos:
+        detalle = "; ".join(fallos)
+        return RedirectResponse(
+            f"/archivos?error={quote('No se pudo reprocesar: ' + detalle)}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    movimientos = sum(r.row_count for r in hechos)
+    if len(hechos) == 1:
+        mensaje = f"Se reproceso '{hechos[0].filename}' ({movimientos} movimientos)"
+    else:
+        mensaje = f"Se reprocesaron {len(hechos)} archivos ({movimientos} movimientos)"
+    mensaje += await _categorize_after_import(db)
+    if fallos:
+        mensaje += " No se pudieron reprocesar: " + "; ".join(fallos) + "."
+    return RedirectResponse(
+        f"/archivos?message={quote(mensaje)}", status_code=status.HTTP_303_SEE_OTHER
+    )
+
+
+@router.post("/{file_id}/reprocesar")
+async def reprocess_one(
+    file_id: int,
+    db: Session = Depends(get_db),
+    _: str = Depends(require_user),
+):
+    record = db.get(UploadedFile, file_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    nombre = record.filename
+    error = await _reimportar(db, record)
+    if error:
+        return RedirectResponse(
+            f"/archivos?error={quote(f'No se pudo reprocesar {nombre}: {error}')}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+    mensaje = f"'{nombre}': {record.row_count} movimientos"
+    mensaje += await _categorize_after_import(db)
     return RedirectResponse(
         f"/archivos?message={quote(mensaje)}", status_code=status.HTTP_303_SEE_OTHER
     )

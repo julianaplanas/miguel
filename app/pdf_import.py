@@ -12,6 +12,13 @@ heuristico. Se intenta en dos pasadas:
 Lo que sale es un DataFrame con columnas con nombre, asi que sigue el mismo
 camino que un CSV: se detecta el mapeo y se puede corregir a mano desde la
 pantalla de Archivos.
+
+Reparto de trabajo, a proposito: aqui se hace lo que se puede verificar
+(posiciones, fechas, importes al centavo) y lo estructural (una linea que
+empieza por "total" no es un gasto). Decidir si "ARRASTRE EJERCICIO
+ANTERIOR" es un movimiento es criterio, no parsing: eso lo decide el
+modelo al importar y queda cacheado como regla. Los importes no pasan por
+el modelo nunca: un error de parsing se ve, uno de un LLM no.
 """
 from __future__ import annotations
 
@@ -70,40 +77,13 @@ HEADER_AMOUNT = {"importe", "monto", "debito", "credito", "amount", "valor", "ca
 
 COLUMNS = ["fecha", "descripcion", "importe", "moneda"]
 
-# Lineas que llevan fecha e importe pero no son movimientos: arrastres de
-# saldo y totales. Si entran, inflan el gasto con dinero que no se movio.
-SKIP_WORDS = (
-    "saldo anterior",
-    "saldo inicial",
-    "saldo final",
-    "saldo actual",
-    "saldo al",
-    "total del periodo",
-    "total periodo",
-    "subtotal",
-    "transporte",
-    # Resumenes de tarjeta: el pago del resumen anterior cancela consumos
-    # que ya estan cargados, asi que contarlo restaria gastos reales.
-    "su pago",
-    "pago recibido",
-    "pagos efectuados",
-    "saldo pendiente",
-    "total a pagar",
-    "total consumos",
-    "total del mes",
-    "total compras",
-    "total creditos",
-    "total debitos",
-    "total general",
-    "importe total",
-    "pago minimo",
-    "limite de compra",
-)
-
-
-# Con estas palabras empieza una linea de totales o de saldos, no un gasto.
-# Se comparan como palabra entera: "TOTALGAS SRL" es un comercio de verdad
-# y "TOTAL A PAGAR" no.
+# Filtro minimo y ESTRUCTURAL: una linea que empieza por total, saldo o
+# suma no es un gasto, la escriba como la escriba el banco. A proposito no
+# se enumeran variantes ("total del mes", "sumatoria del periodo",
+# "arrastre ejercicio anterior"): esa lista no tiene fondo y cada banco
+# escribe lo suyo. De eso se encarga el modelo al importar, que decide una
+# vez por descripcion y deja la respuesta cacheada como regla (app/rules.py,
+# drop_non_movements). Esto es la red para cuando no hay modelo configurado.
 SKIP_FIRST_WORDS = {
     "total",
     "totales",
@@ -115,6 +95,15 @@ SKIP_FIRST_WORDS = {
     "transporte",
     "consolidado",
 }
+
+# Lo mismo para lo que no encabeza la linea. El pago del resumen de tarjeta
+# cancela consumos que ya estan listados: contarlo resta gasto real.
+SKIP_WORDS = (
+    "su pago",
+    "pago recibido",
+    "pagos efectuados",
+    "pago minimo",
+)
 
 
 def _is_movement(descripcion: str) -> bool:

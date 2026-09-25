@@ -24,6 +24,13 @@ SOURCE_NONE = ""
 
 UNCATEGORIZED = "Sin categoria"
 
+# Categoria especial: la linea no es un gasto ni un ingreso, es ruido del
+# resumen (un total, un saldo, una cabecera repetida, el pago del propio
+# resumen). No se puede enumerar de antemano como escribe cada banco sus
+# totales, asi que lo decide el modelo y la respuesta se guarda como regla:
+# la misma linea no se vuelve a preguntar ni a importar nunca mas.
+NOT_A_MOVEMENT = "No es un movimiento"
+
 # Categorias sugeridas en los selectores (el usuario puede escribir otras).
 SUGGESTED = [
     "Supermercado",
@@ -323,3 +330,21 @@ def categorize(description: str, rules: list[Rule]) -> tuple[str, str] | None:
 
 def is_uncategorized(category: str | None) -> bool:
     return not category or normalize(category) == normalize(UNCATEGORIZED)
+
+
+# Formas en las que el modelo puede contestar "esto no es un movimiento".
+_NOT_A_MOVEMENT_FORMS = {
+    normalize(NOT_A_MOVEMENT),
+    "no es movimiento",
+    "no_es_movimiento",
+    "no es un gasto",
+    "descartar",
+    "ignorar",
+    "total",
+    "saldo",
+}
+
+
+def is_not_movement(category: str | None) -> bool:
+    """Si esa categoria significa 'esta linea no deberia estar importada'."""
+    return normalize(category or "") in _NOT_A_MOVEMENT_FORMS

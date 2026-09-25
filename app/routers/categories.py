@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from app.categorize import SUGGESTED, UNCATEGORIZED
+from app.categorize import NOT_A_MOVEMENT, SUGGESTED, UNCATEGORIZED, is_not_movement
 from app.config import get_settings
 from app.db import get_db
 from app.deps import require_user, templates
@@ -17,6 +17,7 @@ from app.models import CategoryRule, Transaction
 from app.preferences import CAT_AI, categorization_mode
 from app.rules import (
     apply_rule,
+    delete_matching,
     description_summary,
     recategorize,
     save_rule,
@@ -151,22 +152,37 @@ async def suggest(
 
     creadas = 0
     aplicados = 0
+    descartados = 0
     for descripcion, categoria in sugerencias.items():
         categoria = (categoria or "").strip()
         if not categoria or categoria == UNCATEGORIZED:
             continue
+        # El modelo tambien puede decir que la linea no es un movimiento
+        # (un total, un saldo). Esa respuesta se guarda igual y las lineas
+        # se borran.
+        descartar = is_not_movement(categoria)
         try:
-            save_rule(db, descripcion, categoria, source="ai")
+            save_rule(
+                db, descripcion, NOT_A_MOVEMENT if descartar else categoria, source="ai"
+            )
         except ValueError:
             continue
         creadas += 1
-        aplicados += apply_rule(db, descripcion, categoria)
+        if descartar:
+            descartados += delete_matching(db, descripcion)
+        else:
+            aplicados += apply_rule(db, descripcion, categoria)
 
     if not creadas:
         return _redirect(error="El modelo no pudo clasificar ninguna descripcion.")
+    mensaje = f"El modelo sugirio {creadas} categorias y se aplicaron a {aplicados} movimientos."
+    if descartados:
+        mensaje += (
+            f" Ademas descarto {descartados} lineas que no son movimientos "
+            "(totales, saldos y similares)."
+        )
     return _redirect(
-        message=f"El modelo sugirio {creadas} categorias y se aplicaron a {aplicados} movimientos. "
-        "Revisalas abajo: las que no te convenzan, borralas o corregilas."
+        message=mensaje + " Revisalas abajo: las que no te convenzan, borralas o corregilas."
     )
 
 
