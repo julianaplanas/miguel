@@ -133,6 +133,37 @@
   </div>
   {% endif %}
 
+  {% if sin_leer.filas %}
+  <details class="card mapping">
+    <summary>
+      <strong>{{ sin_leer.filas | length }} linea{{ '' if sin_leer.filas | length == 1 else 's' }}
+      con importe que no se importaron</strong>
+      {% if sin_leer.totales %}
+      ({% for codigo, total in sin_leer.totales %}{{ total | money(codigo) }}{{ ' · ' if not loop.last }}{% endfor %})
+      {% endif %}
+    </summary>
+    <p class="file-meta" style="margin:10px 0">
+      Casi siempre son cargos que el resumen lista sin fecha (comisiones, IVA, percepciones):
+      no se importan porque no se sabe a que dia asignarlos. Pero si aca aparece un gasto tuyo,
+      es que el lector no lo supo leer: <strong>copiame esta lista</strong> y lo arreglo.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          {% for f in sin_leer.filas %}
+          <tr>
+            <td>{% if f.fecha %}{{ f.fecha }} · {% endif %}{{ f.descripcion or '—' }}</td>
+            <td class="num">
+              {% for i in f.importes %}<div>{{ i.importe | money(i.moneda) }}</div>{% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+
   <details class="card mapping" {{ 'open' if not mapping.get('date') or not mapping.get('amount') }}>
     <summary><strong>Como se leyeron las columnas</strong> ({{ mapping | length }} campos)</summary>
     <div class="mapping-grid" style="margin-top:12px">

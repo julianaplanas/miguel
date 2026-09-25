@@ -367,6 +367,38 @@ def _ya_importadas(db: Session, file_id: int) -> set[tuple]:
     }
 
 
+def _sin_leer(parsed, moneda_archivo: str) -> dict:
+    """Lineas con importe que no se importaron ni son totales.
+
+    Casi siempre son cargos que el resumen lista sin fecha (comisiones,
+    IVA, percepciones). Pero si el lector se esta dejando movimientos,
+    aparecen aca: es la forma de ver QUE falta, no solo cuanto.
+    """
+    filas = []
+    totales: dict[str, float] = {}
+    for entrada in parsed.skipped:
+        if entrada.get("tipo") != "sin leer":
+            continue
+        importes = []
+        for item in entrada.get("importes", []):
+            valor = parse_amount(item.get("importe"))
+            if valor is None:
+                continue
+            codigo = (item.get("moneda") or "").upper() or moneda_archivo
+            importes.append({"importe": valor, "moneda": codigo})
+            totales[codigo] = round(totales.get(codigo, 0.0) + valor, 2)
+        if not importes:
+            continue
+        filas.append(
+            {
+                "fecha": entrada.get("fecha", ""),
+                "descripcion": entrada.get("descripcion", ""),
+                "importes": importes,
+            }
+        )
+    return {"filas": filas, "totales": sorted(totales.items())}
+
+
 def _declarados(parsed, moneda_archivo: str, netos: dict[str, float]) -> list[dict]:
     """Totales que declara el propio documento, contra lo que se va a importar.
 
@@ -377,6 +409,8 @@ def _declarados(parsed, moneda_archivo: str, netos: dict[str, float]) -> list[di
     vistos: set[tuple] = set()
     salida: list[dict] = []
     for entrada in parsed.skipped:
+        if entrada.get("tipo", "total") != "total":
+            continue
         importes = []
         for item in entrada.get("importes", []):
             valor = parse_amount(item.get("importe"))
@@ -492,6 +526,9 @@ def _preview_context(db: Session, record: UploadedFile, parsed, excluidas: set[i
             parsed,
             (parsed.mapping.get("default_currency") or base_currency(db)).upper(),
             {codigo: datos["neto"] for codigo, datos in por_moneda.items()},
+        ),
+        "sin_leer": _sin_leer(
+            parsed, (parsed.mapping.get("default_currency") or base_currency(db)).upper()
         ),
         "duplicadas": sum(1 for f in filas if f["duplicada"]),
         "mapping": parsed.mapping,

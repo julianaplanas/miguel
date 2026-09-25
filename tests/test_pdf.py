@@ -16,6 +16,7 @@ from tests.conftest import reset_db
 from tests.pdf_fixtures import (
     extracto_con_saldo,
     pdf_escaneado,
+    resumen_dos_titulares,
     resumen_tarjeta_dolares,
     resumen_tarjeta_dos_columnas,
 )
@@ -96,6 +97,51 @@ def test_las_hojas_siguientes_no_repiten_la_cabecera():
     assert filas["AWS AMAZON WEB SERVICES"]["moneda"] == "USD"
     assert filas["AWS AMAZON WEB SERVICES"]["importe"] == "42,30"
     assert filas["TOTALGAS SRL"]["moneda"] == ""
+
+
+def test_columnas_sin_cabecera_reconocible():
+    """Cabecera "$" y "U$S", dos titulares, y la hoja 2 sin cabecera.
+
+    Buscando las columnas por su cabecera, de este resumen entraban 2 filas
+    de 7 y ni un peso: lo que no encajaba se descartaba en silencio. Las
+    columnas salen ahora de la posicion de los propios importes.
+    """
+    df = extract_rows(resumen_dos_titulares())
+    assert len(df) == 7
+
+    filas = {r["descripcion"]: r for _, r in df.iterrows()}
+    assert filas["OPENAI *CHATGPT"]["moneda"] == "USD"
+    assert filas["NETFLIX.COM"]["moneda"] == "USD"
+    assert filas["COTO CICSA"]["moneda"] == ""
+    assert filas["COTO CICSA"]["importe"] == "89.100,00"
+    # El simbolo suelto delante del importe no es descripcion.
+    assert "$" not in filas["MERPAGO*LIBRERIA"]["descripcion"]
+    # El cupon tampoco: cambia en cada linea y romperia el cacheo.
+    assert "00121" not in filas["MERPAGO*LIBRERIA"]["descripcion"]
+
+    def suma(moneda):
+        return round(
+            sum(
+                float(r["importe"].replace(".", "").replace(",", "."))
+                for _, r in df.iterrows()
+                if r["moneda"] == moneda
+            ),
+            2,
+        )
+
+    # Cuadra con el "Total a pagar" que declara el documento.
+    assert suma("") == 192000.50
+    assert suma("USD") == 32.99
+
+
+def test_los_subtotales_por_titular_quedan_como_totales_declarados():
+    saltadas = []
+    extract_rows(resumen_dos_titulares(), saltadas)
+    totales = {e["descripcion"]: e for e in saltadas if e["tipo"] == "total"}
+    assert "Total a pagar" in totales
+    assert "Subtotal de Miguel Aleja Planas" in totales
+    # Y ninguno se importo como si fuera un gasto.
+    assert all("Subtotal" not in d for d in extract_rows(resumen_dos_titulares())["descripcion"])
 
 
 def test_fechas_con_el_mes_en_letras():

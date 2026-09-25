@@ -171,3 +171,88 @@ def resumen_tarjeta_dos_columnas() -> bytes:
     c.showPage()
     c.save()
     return buffer.getvalue()
+
+
+def resumen_dos_titulares() -> bytes:
+    """Resumen de tarjeta con dos titulares y cabecera con simbolos.
+
+    Reproduce lo que rompia al lector por posicion: la cabecera de las
+    columnas no dice PESOS/DOLARES sino "$" y "U$S", el detalle se parte en
+    secciones por titular (con subtotales en medio), algunas lineas llevan
+    el simbolo de la moneda como palabra suelta delante del importe, y en
+    la segunda hoja no se repite la cabecera.
+    """
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    x_fecha, x_desc, x_cupon = 18 * mm, 38 * mm, 128 * mm
+    x_pesos, x_dolares = 168 * mm, 196 * mm
+
+    def cabecera(y):
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(x_fecha, y, "FECHA")
+        c.drawString(x_desc, y, "DETALLE")
+        c.drawString(x_cupon, y, "CUPON")
+        c.drawRightString(x_pesos, y, "$")
+        c.drawRightString(x_dolares, y, "U$S")
+        c.setFont("Helvetica", 8)
+
+    def movimiento(y, fecha, desc, cupon, pesos=None, dolares=None, simbolo=False):
+        c.drawString(x_fecha, y, fecha)
+        c.drawString(x_desc, y, desc)
+        c.drawString(x_cupon, y, cupon)
+        if pesos:
+            if simbolo:
+                c.drawRightString(x_pesos - 24 * mm, y, "$")
+            c.drawRightString(x_pesos, y, pesos)
+        if dolares:
+            if simbolo:
+                c.drawRightString(x_dolares - 16 * mm, y, "U$S")
+            c.drawRightString(x_dolares, y, dolares)
+
+    y = 275 * mm
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(x_fecha, y, "VISA - Resumen de cuenta 2026")
+    y -= 12 * mm
+    cabecera(y)
+    y -= 6 * mm
+
+    c.drawString(x_desc, y, "MIGUEL ALEJA PLANAS 4517 XXXX XXXX 1234")
+    y -= 5.5 * mm
+    for fecha, desc, cupon, pesos, dolares in [
+        ("02-Ago-26", "MERPAGO*LIBRERIA", "00121", "12.500,00", None),
+        ("05-Ago-26", "OPENAI *CHATGPT", "00122", None, "20,00"),
+        ("11-Ago-26", "SUBTE SUBE", "00123", "8.000,00", None),
+    ]:
+        movimiento(y, fecha, desc, cupon, pesos, dolares, simbolo=True)
+        y -= 5.5 * mm
+    y -= 2 * mm
+    c.drawString(x_desc, y, "Subtotal de Miguel Aleja Planas")
+    c.drawRightString(x_pesos, y, "20.500,00")
+    c.drawRightString(x_dolares, y, "20,00")
+
+    # Segunda hoja: otro titular y ninguna cabecera.
+    c.showPage()
+    c.setFont("Helvetica", 8)
+    y = 275 * mm
+    c.drawString(x_desc, y, "MARIA DE ZENOBI 4517 XXXX XXXX 5678")
+    y -= 6 * mm
+    for fecha, desc, cupon, pesos, dolares in [
+        ("03-Ago-26", "FARMACITY", "00201", "35.400,50", None),
+        ("09-Ago-26", "NETFLIX.COM", "00202", None, "12,99"),
+        ("15-Ago-26", "COTO CICSA", "00203", "89.100,00", None),
+        ("21-Ago-26", "YPF FULL", "00204", "47.000,00", None),
+    ]:
+        movimiento(y, fecha, desc, cupon, pesos, dolares)
+        y -= 5.5 * mm
+    y -= 2 * mm
+    c.drawString(x_desc, y, "Subtotal de Maria De Zenobi")
+    c.drawRightString(x_pesos, y, "171.500,50")
+    c.drawRightString(x_dolares, y, "12,99")
+    y -= 8 * mm
+    c.drawString(x_desc, y, "Total a pagar")
+    c.drawRightString(x_pesos, y, "192.000,50")
+    c.drawRightString(x_dolares, y, "32,99")
+
+    c.showPage()
+    c.save()
+    return buffer.getvalue()

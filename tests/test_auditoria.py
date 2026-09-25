@@ -105,3 +105,16 @@ def test_cada_fila_muestra_de_donde_salio(auth):
     pagina = auth.get(f"/archivos/{_ultimo_id()}/revisar").text
     # La columna 'saldo' no se mapea a nada, pero en el origen esta.
     assert "999999" in pagina
+
+
+def test_las_lineas_con_importe_que_no_se_leyeron_se_listan(auth):
+    """Un cargo sin fecha no se importa, pero tiene que verse.
+
+    Es lo que permite distinguir "el lector lo descarto bien" de "el lector
+    se lo perdio": si en esa lista aparece un gasto, es un bug del lector.
+    """
+    from tests.pdf_fixtures import extracto_con_saldo
+
+    _subir(auth, "extracto.pdf", extracto_con_saldo(), "application/pdf")
+    pagina = auth.get(f"/archivos/{_ultimo_id()}/revisar").text
+    assert "que no se importaron" in pagina or "Contra los totales" in pagina

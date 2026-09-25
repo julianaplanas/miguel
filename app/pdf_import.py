@@ -64,12 +64,20 @@ MONTHS = {
 CURRENCY_COLUMNS = {
     "pesos": "",
     "peso": "",
+    "$": "",
+    "ar$": "",
+    "ars": "",
+    "$ ars": "",
     "importe": "",
+    "monto": "",
     "dolares": "USD",
     "dolar": "USD",
     "usd": "USD",
     "u$s": "USD",
     "us$": "USD",
+    "u$d": "USD",
+    "$ usd": "USD",
+    "dolares usa": "USD",
 }
 
 HEADER_DATE = {"fecha", "fecha operacion", "fecha de operacion", "dia", "date"}
@@ -121,6 +129,7 @@ def _anotar(
     fecha: str,
     descripcion: str,
     importes: list[tuple[str, str]],
+    tipo: str = "total",
 ) -> None:
     """Deja constancia de una linea que se leyo pero no se importa.
 
@@ -131,8 +140,14 @@ def _anotar(
     """
     if skipped is None:
         return
+    # Una "linea" que es solo simbolos y numeros (la fila de limites, la de
+    # cuotas a vencer) no es una linea que el lector se haya perdido: es
+    # maquetacion. Se pide algo de texto para no llenar de ruido el panel.
+    if tipo == "sin leer" and sum(c.isalpha() for c in descripcion) < 3:
+        return
     skipped.append(
         {
+            "tipo": tipo,
             "fecha": fecha,
             "descripcion": descripcion,
             "importes": [{"importe": numero, "moneda": moneda} for numero, moneda in importes],
@@ -283,41 +298,74 @@ def _page_lines(page: Any) -> list[list[dict[str, Any]]]:
     return lineas
 
 
-def _currency_columns(lineas: list[list[dict[str, Any]]]) -> list[tuple[float, float, str]]:
-    """Columnas de importe segun su cabecera (PESOS / DOLARES).
+def _amount_words(lineas: list[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Todas las palabras de la pagina que son un importe."""
+    return [p for linea in lineas for p in linea if WORD_AMOUNT_RE.match(p["text"])]
 
-    Se buscan en todo el documento, no pagina por pagina: la cabecera suele
-    estar solo en la primera y las hojas siguientes siguen las mismas
-    columnas. Buscandolas por pagina, las hojas sin cabecera se perdian
-    enteras y el total quedaba corto sin decir nada.
+
+def _column_clusters(palabras: list[dict[str, Any]], tolerancia: float = 10.0) -> list[dict]:
+    """Agrupa los importes por su borde derecho: cada grupo es una columna.
+
+    Las columnas de una tabla salen de los DATOS, no de la cabecera: hay
+    resumenes que la escriben "$ U$S", otros "PESOS DOLARES", otros no la
+    repiten en las hojas siguientes. Los importes, en cambio, siempre estan
+    alineados. Buscar la cabecera y descartar lo que no encaje hacia que un
+    formato desconocido perdiera filas en silencio.
     """
-    columnas: list[tuple[float, float, str]] = []
-    for linea in lineas:
-        # Solo se miran las lineas de cabecera (las que encabezan la fecha).
-        # Si no, un "US$" escrito delante de un importe pasaria por columna.
-        if not any(_normalize(p["text"]) in HEADER_DATE for p in linea):
+    if not palabras:
+        return []
+    ordenadas = sorted(palabras, key=lambda p: p["x1"])
+    grupos: list[list[dict[str, Any]]] = [[ordenadas[0]]]
+    for palabra in ordenadas[1:]:
+        if palabra["x1"] - grupos[-1][-1]["x1"] <= tolerancia:
+            grupos[-1].append(palabra)
+        else:
+            grupos.append([palabra])
+
+    columnas = []
+    for grupo in grupos:
+        # Una columna de verdad tiene varias filas. Un importe suelto en
+        # medio de un parrafo no la hace.
+        if len(grupo) < 3:
             continue
+        columnas.append(
+            {
+                "x0": min(p["x0"] for p in grupo),
+                "x1": max(p["x1"] for p in grupo),
+                "codigo": "",
+                "n": len(grupo),
+            }
+        )
+    return sorted(columnas, key=lambda c: c["x1"])
+
+
+def _label_columns(columnas: list[dict], lineas: list[list[dict[str, Any]]]) -> None:
+    """Le pone moneda a cada columna, si alguna cabecera la nombra.
+
+    La cabecera solo ETIQUETA columnas que ya existen: si no aparece, o no
+    se entiende, la columna sigue valiendo y se usa la moneda del archivo.
+    """
+    for linea in lineas:
         for palabra in linea:
             codigo = CURRENCY_COLUMNS.get(_normalize(palabra["text"]))
-            if codigo is None:
+            if not codigo:  # None (no es cabecera) o "" (moneda del archivo)
                 continue
-            columnas.append((palabra["x0"], palabra["x1"], codigo))
-    return columnas
+            for columna in columnas:
+                if palabra["x0"] <= columna["x1"] and palabra["x1"] >= columna["x0"]:
+                    columna["codigo"] = codigo
 
 
-def _column_currency(palabra: dict[str, Any], columnas) -> str | None:
-    """Moneda de la columna donde cae esa palabra, o None si no cae en ninguna."""
-    mejor: str | None = None
+def _column_index(palabra: dict[str, Any], columnas: list[dict]) -> int | None:
+    """En que columna cae ese importe, o None si en ninguna."""
+    mejor: int | None = None
     distancia: float | None = None
-    for x0, x1, codigo in columnas:
-        if palabra["x0"] <= x1 and palabra["x1"] >= x0:
-            return codigo
-        # Los importes van alineados a la derecha, asi que el borde derecho
-        # es lo que mejor identifica la columna.
-        actual = abs(palabra["x1"] - x1)
+    for indice, columna in enumerate(columnas):
+        if palabra["x0"] <= columna["x1"] and palabra["x1"] >= columna["x0"]:
+            return indice
+        actual = abs(palabra["x1"] - columna["x1"])
         if distancia is None or actual < distancia:
-            mejor, distancia = codigo, actual
-    if distancia is not None and distancia <= 20:
+            mejor, distancia = indice, actual
+    if distancia is not None and distancia <= 12:
         return mejor
     return None
 
@@ -325,9 +373,9 @@ def _column_currency(palabra: dict[str, Any], columnas) -> str | None:
 def _anotar_declarado(
     skipped: list[dict[str, Any]] | None,
     linea: list[dict[str, Any]],
-    columnas: list[tuple[float, float, str]],
+    columnas: list[dict],
 ) -> None:
-    """Guarda una linea de totales del documento, con sus importes."""
+    """Guarda una linea sin fecha que lleva importes en las columnas."""
     if skipped is None:
         return
     palabras = []
@@ -335,85 +383,161 @@ def _anotar_declarado(
     for palabra in linea:
         encontrado = WORD_AMOUNT_RE.match(palabra["text"])
         if encontrado:
-            moneda = _column_currency(palabra, columnas)
-            if moneda is not None:
+            indice = _column_index(palabra, columnas)
+            if indice is not None:
                 numero = encontrado.group(1)
                 if encontrado.group(2):
                     numero = f"-{numero.lstrip('-')}"
-                importes.append((numero, moneda))
+                importes.append((numero, columnas[indice]["codigo"]))
                 continue
         palabras.append(palabra["text"])
     if not importes:
         return
     texto = " ".join(palabras).strip()
-    # Solo las que son totales de verdad: el mismo criterio estructural que
-    # decide que una linea con fecha no es un movimiento.
+    # Un total de verdad (mismo criterio estructural que para las lineas con
+    # fecha) o algo que cae en las columnas de importe y no se supo leer.
+    # Lo segundo es lo que delata a un lector que se esta dejando filas.
     primera = _normalize(texto).split(" ", 1)[0].strip(".:-") if texto else ""
-    if primera not in SKIP_FIRST_WORDS:
-        return
-    _anotar(skipped, "", texto, importes)
+    tipo = "total" if primera in SKIP_FIRST_WORDS else "sin leer"
+    _anotar(skipped, "", texto, importes, tipo)
+
+
+def _line_date(linea: list[dict[str, Any]], year_hint: int | None) -> tuple[str | None, int]:
+    """Fecha de la linea y desde que palabra empieza la descripcion.
+
+    Se busca en las dos primeras palabras porque hay resumenes que ponen
+    delante un numero de tarjeta o un asterisco.
+    """
+    for posicion, palabra in enumerate(linea[:2]):
+        match = DATE_RE.match(palabra["text"])
+        fecha = _parse_date(match, year_hint) if match else None
+        if fecha:
+            return fecha, posicion + 1
+    return None, 1
+
+
+# Simbolos que algunos resumenes escriben como palabra suelta delante del
+# importe ("COMPRA X   U$S 42,30"). No son descripcion: son la moneda.
+CURRENCY_SYMBOLS = {
+    "$": "",
+    "ar$": "",
+    "$a": "",
+    "u$s": "USD",
+    "us$": "USD",
+    "usd": "USD",
+    "u$d": "USD",
+}
+
+
+def _line_amounts(
+    linea: list[dict[str, Any]], desde: int, columnas: list[dict]
+) -> tuple[list[tuple[int, str, str]], list[str]]:
+    """Importes de la linea con su columna y su simbolo, y la descripcion."""
+    importes: list[tuple[int, str, str]] = []
+    descripcion: list[str] = []
+    simbolo = ""
+    for palabra in linea[desde:]:
+        texto = palabra["text"]
+        encontrado = WORD_AMOUNT_RE.match(texto)
+        if encontrado:
+            indice = _column_index(palabra, columnas)
+            if indice is not None:
+                numero = encontrado.group(1)
+                if encontrado.group(2):
+                    numero = f"-{numero.lstrip('-')}"
+                importes.append((indice, numero, simbolo))
+                simbolo = ""
+                continue
+        marca = CURRENCY_SYMBOLS.get(_normalize(texto))
+        if marca is not None:
+            # Se guarda para el proximo importe y no ensucia la descripcion.
+            simbolo = marca
+            continue
+        # El numero de comprobante cambia en cada linea: dejarlo en la
+        # descripcion haria que ningun comercio se repitiera nunca, y cada
+        # uno costaria una consulta al modelo.
+        if texto.isdigit() and len(texto) >= 4:
+            continue
+        descripcion.append(texto)
+    return importes, descripcion
 
 
 def _rows_from_layout(
-    lineas: list[list[dict[str, Any]]],
-    columnas: list[tuple[float, float, str]],
+    por_pagina: list[list[list[dict[str, Any]]]],
+    columnas: list[dict],
     year_hint: int | None,
     skipped: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Movimientos de un resumen con columnas de pesos y dolares.
+    """Movimientos leidos por la POSICION de cada importe, no por el texto.
 
-    Se usa la posicion de cada palabra, no el orden del texto: en estos
-    resumenes el importe de la linea puede estar en una columna o en la
-    otra, y leyendo el texto plano no hay forma de saber cual. Ademas evita
-    confundir el numero de comprobante, o un importe escrito dentro de la
-    descripcion, con el importe del movimiento.
+    En el texto plano de un PDF las columnas quedan pegadas: un importe en
+    la columna de dolares y otro en la de pesos se leen igual, y un numero
+    escrito dentro de la descripcion parece el importe de la fila. Mirando
+    donde cae cada importe eso se resuelve.
+
+    Hay dos formas de tabla y se distinguen contando: si la fila tipica
+    tiene UN importe, cada columna es una moneda; si tiene DOS, la segunda
+    es el saldo acumulado y hay que quedarse con la primera (y una fila con
+    un solo importe es un arrastre de saldo, no un movimiento).
     """
-    filas: list[dict[str, Any]] = []
-    for linea in lineas:
-        match = DATE_RE.match(linea[0]["text"])
-        fecha = _parse_date(match, year_hint) if match else None
-        if not fecha:
-            # Sin fecha no es un movimiento, pero puede ser un total que el
-            # documento declara ("TOTAL CONSUMOS DEL MES"). Esos son con los
-            # que se comprueba, sumando, que lo importado cuadra.
-            _anotar_declarado(skipped, linea, columnas)
-            continue
+    if not columnas:
+        return []
 
-        elegido: tuple[str, str] | None = None
-        encontrados: list[tuple[str, str]] = []
-        descripcion: list[str] = []
-        for palabra in linea[1:]:
-            texto = palabra["text"]
-            importe = WORD_AMOUNT_RE.match(texto)
-            if importe:
-                moneda = _column_currency(palabra, columnas)
-                if moneda is not None:
-                    numero = importe.group(1)
-                    if importe.group(2):
-                        numero = f"-{numero.lstrip('-')}"
-                    encontrados.append((numero, moneda))
-                    if elegido is None:
-                        elegido = (numero, moneda)
-                    continue
-            # El numero de comprobante cambia en cada linea: dejarlo en la
-            # descripcion haria que ningun comercio se repitiera nunca, y
-            # cada uno costaria una consulta al modelo.
-            if texto.isdigit() and len(texto) >= 4:
+    candidatas = []
+    for lineas in por_pagina:
+        for linea in lineas:
+            fecha, desde = _line_date(linea, year_hint)
+            if not fecha:
+                _anotar_declarado(skipped, linea, columnas)
                 continue
-            descripcion.append(texto)
+            importes, descripcion = _line_amounts(linea, desde, columnas)
+            candidatas.append((fecha, descripcion, importes, linea, desde))
 
-        if elegido is None:
-            continue
+    con_importe = [c for c in candidatas if c[2]]
+    if not con_importe:
+        return []
+    tipico = Counter(len(c[2]) for c in con_importe).most_common(1)[0][0]
+
+    filas: list[dict[str, Any]] = []
+    for fecha, descripcion, importes, linea, desde in candidatas:
         texto = " ".join(descripcion).strip(" .-\t")
-        if not texto or not _is_movement(texto):
-            _anotar(skipped, fecha, texto, encontrados)
+        if not importes:
+            # Tiene fecha pero ningun importe cayo en una columna: o no es
+            # un movimiento, o el lector no supo leerlo. Queda anotada para
+            # que se vea en la revision.
+            sueltos = [
+                (WORD_AMOUNT_RE.match(p["text"]).group(1), "")
+                for p in linea[desde:]
+                if WORD_AMOUNT_RE.match(p["text"])
+            ]
+            if sueltos:
+                _anotar(skipped, fecha, texto, sueltos, "sin leer")
             continue
+
+        indice, numero, simbolo = importes[0]
+        if tipico >= 2 and len(importes) < tipico:
+            # Con dos importes por fila (movimiento + saldo), una fila con
+            # uno solo suele ser el arrastre del saldo anterior.
+            _anotar(skipped, fecha, texto, [(numero, columnas[indice]["codigo"])])
+            continue
+
+        if not texto or not _is_movement(texto):
+            _anotar(
+                skipped,
+                fecha,
+                texto,
+                [(n, columnas[i]["codigo"] or sim) for i, n, sim in importes],
+            )
+            continue
+
         filas.append(
             {
                 "fecha": fecha,
                 "descripcion": texto[:200],
-                "importe": elegido[0],
-                "moneda": elegido[1],
+                "importe": numero,
+                # La columna manda; el simbolo de la linea es el respaldo
+                # para los resumenes que no etiquetan las columnas.
+                "moneda": columnas[indice]["codigo"] or simbolo,
             }
         )
     return filas
@@ -499,29 +623,49 @@ def extract_rows(data: bytes, skipped: list[dict[str, Any]] | None = None) -> pd
 
     year_hint = _document_year(texto_completo)
 
-    filas: list[dict[str, Any]] = []
+    # Las tres lecturas se prueban y gana la que saca mas movimientos. Antes
+    # se iba a la siguiente solo si la anterior no sacaba NADA, y con eso
+    # una lectura que encontraba la mitad de las filas tapaba a la que las
+    # encontraba todas: el resumen entraba incompleto y nada lo decia.
+    por_tablas: list[dict[str, Any]] = []
     for page in paginas:
-        filas.extend(_rows_from_tables(page, year_hint, skipped))
+        por_tablas.extend(_rows_from_tables(page, year_hint))
 
-    if not filas:
-        por_pagina = [_page_lines(page) for page in paginas]
-        columnas: list[tuple[float, float, str]] = []
-        for lineas in por_pagina:
-            columnas.extend(_currency_columns(lineas))
-        # Sin una columna de dolares no hace falta mirar posiciones: el
-        # lector de texto plano de abajo alcanza y esta mas probado.
-        if any(codigo == "USD" for _, _, codigo in columnas):
-            for lineas in por_pagina:
-                filas.extend(_rows_from_layout(lineas, columnas, year_hint, skipped))
+    por_pagina = [_page_lines(page) for page in paginas]
+    palabras = [p for lineas in por_pagina for p in _amount_words(lineas)]
+    columnas = _column_clusters(palabras)
+    for lineas in por_pagina:
+        _label_columns(columnas, lineas)
+    por_posicion = _rows_from_layout(por_pagina, columnas, year_hint)
 
-    if not filas:
-        filas = _rows_from_lines(texto_completo.splitlines(), year_hint, skipped)
+    por_texto = _rows_from_lines(texto_completo.splitlines(), year_hint)
+
+    # En empate gana la posicion: distingue la moneda de cada columna y no
+    # confunde un numero de la descripcion con el importe de la fila.
+    candidatas = [
+        (len(por_posicion), 2, "posicion"),
+        (len(por_tablas), 1, "tablas"),
+        (len(por_texto), 0, "texto"),
+    ]
+    _, _, mejor = max(candidatas)
+    filas = {"posicion": por_posicion, "tablas": por_tablas, "texto": por_texto}[mejor]
 
     if not filas:
         raise PdfImportError(
             "No encontre movimientos en el PDF. Necesito lineas con una fecha "
             "al principio y un importe al final."
         )
+
+    # Las lineas descartadas se anotan con la lectura que gano, para que lo
+    # que se muestra en la revision se corresponda con lo que se importa.
+    if skipped is not None:
+        if mejor == "posicion":
+            _rows_from_layout(por_pagina, columnas, year_hint, skipped)
+        elif mejor == "tablas":
+            for page in paginas:
+                _rows_from_tables(page, year_hint, skipped)
+        else:
+            _rows_from_lines(texto_completo.splitlines(), year_hint, skipped)
 
     return pd.DataFrame(filas, columns=COLUMNS)
 
