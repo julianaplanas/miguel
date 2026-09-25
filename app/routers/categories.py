@@ -16,6 +16,7 @@ from app.llm import OpenRouterError, suggest_categories
 from app.models import CategoryRule, Transaction
 from app.preferences import CAT_AI, categorization_mode
 from app.rules import (
+    ai_review_non_movements,
     apply_rule,
     delete_matching,
     description_summary,
@@ -183,6 +184,32 @@ async def suggest(
         )
     return _redirect(
         message=mensaje + " Revisalas abajo: las que no te convenzan, borralas o corregilas."
+    )
+
+
+@router.post("/revisar-lineas")
+async def review_lines(db: Session = Depends(get_db), _: str = Depends(require_user)):
+    """Busca entre TODAS las descripciones las que no son movimientos.
+
+    El paso de la importacion solo pregunta por lo que quedo sin categoria,
+    asi que una linea de totales que ya tiene categoria no se revisa sola
+    nunca. Esto es el repaso completo, a pedido.
+    """
+    if not get_settings().chat_enabled:
+        return _redirect(error="No hay OPENROUTER_API_KEY configurada.")
+    try:
+        borrados, descartadas = await ai_review_non_movements(db)
+    except OpenRouterError as exc:
+        return _redirect(error=f"No se pudo revisar: {exc}")
+
+    if not descartadas:
+        return _redirect(message="Revisado: no hay lineas que sobren.")
+    muestra = ", ".join(descartadas[:6])
+    if len(descartadas) > 6:
+        muestra += f" y {len(descartadas) - 6} mas"
+    return _redirect(
+        message=f"Se descartaron {borrados} movimientos de {len(descartadas)} descripciones: "
+        f"{muestra}. Si alguna no correspondia, borra su regla abajo y volve a importar."
     )
 
 

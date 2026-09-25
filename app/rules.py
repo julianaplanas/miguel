@@ -295,6 +295,54 @@ async def ai_categorize_pending(db: Session, limit: int = 300) -> tuple[int, int
     return creadas, aplicados, descartados
 
 
+async def ai_review_non_movements(db: Session, limit: int = 400) -> tuple[int, list[str]]:
+    """Revisa TODAS las descripciones buscando lineas que no son movimientos.
+
+    Existe porque el paso de la importacion solo le pregunta al modelo por
+    lo que quedo sin categoria: una linea de totales que ya habia recibido
+    una categoria (por una regla vieja, o antes de que esto existiera) no
+    se revisa sola nunca mas. Esto la encuentra.
+
+    Devuelve (movimientos borrados, descripciones descartadas).
+    """
+    from app.llm import OpenRouterError, find_non_movements  # diferido: evita un ciclo
+
+    filas = [
+        {"descripcion": f["descripcion"], "importe": f["promedio"], "veces": f["veces"]}
+        for f in description_summary(db, limit=limit)
+        # Lo que el usuario corrigio a mano no se toca: ya dijo que es.
+        if f["origen"] != SOURCE_MANUAL
+    ]
+    if not filas:
+        return 0, []
+
+    descartadas: list[str] = []
+    errores: list[str] = []
+    for inicio in range(0, len(filas), AI_CHUNK):
+        trozo = filas[inicio : inicio + AI_CHUNK]
+        try:
+            respuesta = await find_non_movements(trozo)
+        except OpenRouterError as exc:
+            errores.append(str(exc))
+            continue
+        conocidas = {f["descripcion"] for f in trozo}
+        # Solo se acepta lo que salio de la lista enviada: si el modelo
+        # inventa o reformula una descripcion, no se borra nada.
+        descartadas.extend(d for d in respuesta if d in conocidas)
+
+    if errores and not descartadas:
+        raise OpenRouterError(errores[0])
+
+    borrados = 0
+    for descripcion in descartadas:
+        try:
+            save_rule(db, descripcion, NOT_A_MOVEMENT, source=SOURCE_AI)
+        except ValueError:
+            continue
+        borrados += delete_matching(db, descripcion)
+    return borrados, descartadas
+
+
 ORIGIN_LABELS = {
     SOURCE_MANUAL: "corregida a mano",
     SOURCE_AI: "el modelo",

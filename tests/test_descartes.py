@@ -7,6 +7,7 @@ por descripcion y la respuesta queda guardada.
 from __future__ import annotations
 
 import io
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -116,8 +117,6 @@ def test_al_reimportar_no_vuelven_a_entrar_ni_se_vuelve_a_preguntar(auth, modelo
 
 
 def test_el_aviso_dice_cuantas_se_descartaron(auth):
-    from urllib.parse import unquote
-
     destino = unquote(_subir(auth).headers["location"])
     assert "descartaron 2 lineas" in destino
 
@@ -148,3 +147,71 @@ def test_si_el_modelo_se_equivoca_mandas_vos(auth, modelo):
     assert filas["ARRASTRE EJERCICIO ANTERIOR"]["categoria"] == "Otros"
     # Y la otra linea de totales sigue descartada.
     assert "SUMATORIA MOVIMIENTOS PERIODO" not in filas
+
+
+# --- Repaso completo, a pedido -------------------------------------------
+#
+# El paso de la importacion solo pregunta por lo que quedo sin categoria.
+# Una linea de totales que YA tiene categoria (de una regla vieja, o de
+# antes de que esto existiera) no se revisa sola nunca.
+
+CSV_YA_CATEGORIZADO = (
+    "fecha,concepto,categoria,persona,importe\n"
+    "2026-03-01,COMPRA COTO DIGITAL,Supermercado,Ana,48200.50\n"
+    "2026-03-31,SUMATORIA MOVIMIENTOS PERIODO,Transferencias,Ana,1307700.50\n"
+)
+
+
+class FakeRevisor:
+    """Sustituye a find_non_movements y anota que se le pregunto."""
+
+    def __init__(self, descartar, inventar=()):
+        self.descartar = set(descartar)
+        self.inventar = list(inventar)
+        self.preguntadas: list[str] = []
+
+    async def __call__(self, descriptions, model=None):
+        textos = [d["descripcion"] for d in descriptions]
+        self.preguntadas.extend(textos)
+        return [t for t in textos if t in self.descartar] + self.inventar
+
+
+def test_el_repaso_encuentra_lo_que_ya_tenia_categoria(auth, monkeypatch):
+    _subir(auth, "ya-categorizado.csv", CSV_YA_CATEGORIZADO)
+    assert "SUMATORIA MOVIMIENTOS PERIODO" in _descripciones(auth)
+
+    revisor = FakeRevisor(["SUMATORIA MOVIMIENTOS PERIODO"])
+    monkeypatch.setattr("app.llm.find_non_movements", revisor)
+
+    respuesta = auth.post("/categorias/revisar-lineas", follow_redirects=False)
+    assert respuesta.status_code == 303
+    assert _descripciones(auth) == {"COMPRA COTO DIGITAL"}
+    # Se le pregunto por las dos, no solo por las que no tenian categoria.
+    assert set(revisor.preguntadas) == {"COMPRA COTO DIGITAL", "SUMATORIA MOVIMIENTOS PERIODO"}
+
+
+def test_el_repaso_no_toca_lo_corregido_a_mano(auth, monkeypatch):
+    _subir(auth, "ya-categorizado.csv", CSV_YA_CATEGORIZADO)
+    filas = {f["descripcion"]: f["id"] for f in auth.get("/api/transacciones").json()["rows"]}
+    auth.patch(
+        f"/api/transacciones/{filas['SUMATORIA MOVIMIENTOS PERIODO']}",
+        json={"categoria": "Ingresos", "aplicar_a_similares": False},
+    )
+
+    revisor = FakeRevisor(["SUMATORIA MOVIMIENTOS PERIODO"])
+    monkeypatch.setattr("app.llm.find_non_movements", revisor)
+    auth.post("/categorias/revisar-lineas", follow_redirects=False)
+
+    assert "SUMATORIA MOVIMIENTOS PERIODO" not in revisor.preguntadas
+    assert "SUMATORIA MOVIMIENTOS PERIODO" in _descripciones(auth)
+
+
+def test_el_repaso_solo_borra_lo_que_mando(auth, monkeypatch):
+    """Si el modelo devuelve algo que no estaba en la lista, se ignora."""
+    _subir(auth, "ya-categorizado.csv", CSV_YA_CATEGORIZADO)
+    revisor = FakeRevisor([], inventar=["COMPRA COTO", "cualquier cosa"])
+    monkeypatch.setattr("app.llm.find_non_movements", revisor)
+
+    respuesta = auth.post("/categorias/revisar-lineas", follow_redirects=False)
+    assert "no hay lineas que sobren" in unquote(respuesta.headers["location"])
+    assert "COMPRA COTO DIGITAL" in _descripciones(auth)

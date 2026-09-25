@@ -46,6 +46,15 @@
       <form method="post" action="/categorias/sugerir">
         <button type="submit" class="btn-sm btn-primary">Sugerir con IA</button>
       </form>
+      <form method="post" action="/categorias/revisar-lineas"
+            data-confirmar-titulo="Buscar lineas que no son movimientos"
+            data-confirmar="Se le pasan al modelo todas las descripciones y se borran las que diga que son totales, saldos o cabeceras. Lo que corregiste a mano no se toca."
+            data-confirmar-aceptar="Revisar">
+        <button type="submit" class="btn-sm"
+                title="Borra totales, saldos y cabeceras que se colaron al leer el PDF">
+          Buscar lineas que no son movimientos
+        </button>
+      </form>
       <form method="post" action="/categorias/probar">
         <button type="submit" class="btn-sm" title="Hace una llamada de prueba al modelo">
           Probar el modelo
@@ -60,6 +69,10 @@
       <strong>Sugerir con IA</strong> le manda al modelo solo las descripciones distintas que
       quedan sin categorizar y crea una regla por cada una, para que las revises. Si ya
       tenes la categorizacion con IA activada, esto corre solo al importar.
+      <strong>Buscar lineas que no son movimientos</strong> revisa TODAS las descripciones,
+      no solo las que estan sin categoria: los totales y saldos que se colaron al leer un PDF
+      y ya recibieron categoria no se revisan solos nunca. Lo que encuentra se borra y queda
+      guardado como regla, asi que no vuelve a entrar.
       <strong>Probar el modelo</strong> hace una llamada real y muestra que contesto o que
       error dio: sirve para descartar clave mal puesta, modelo inexistente o falta de credito.
       {% else %}

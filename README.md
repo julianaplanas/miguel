@@ -119,6 +119,10 @@ que esa línea no se vuelve a importar ni a preguntar. Sin `OPENROUTER_API_KEY`
 queda un filtro mínimo (lo que empieza por total/saldo/suma). Si se equivoca,
 creá una regla a mano con la categoría que corresponda: la regla manual gana.
 
+En Categorías, **Buscar líneas que no son movimientos** hace el repaso completo:
+el paso de la importación solo pregunta por lo que quedó sin categoría, así que
+un total que ya recibió una categoría no se revisa solo nunca.
+
 **Reprocesar** vuelve a leer los archivos guardados con el lector y las reglas
 de hoy, sin tener que borrarlos y subirlos otra vez. Está por archivo y para
 todos juntos, arriba en Archivos.

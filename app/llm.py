@@ -218,6 +218,76 @@ def _parse_json_object(texto: str) -> dict[str, str]:
     return {str(k): str(v) for k, v in datos.items()}
 
 
+NOT_MOVEMENT_PROMPT = """Sos un asistente que limpia movimientos ya
+importados de resumenes bancarios y de tarjeta argentinos.
+
+Te paso una linea por descripcion distinta, con su importe tipico y cuantas
+veces aparece. Tu unica tarea es decir cuales NO son movimientos reales de
+dinero, sino ruido del resumen que se colo al leer el PDF:
+
+- totales y subtotales (del mes, del periodo, de consumos, a pagar)
+- saldos: anterior, actual, pendiente, arrastres de saldo
+- cabeceras o pies de tabla repetidos
+- limites de compra, pagos minimos, cotizaciones informativas
+- el pago del propio resumen de tarjeta, que cancela consumos que ya estan
+  listados linea por linea
+
+Un gasto o un ingreso de verdad NUNCA va en la lista, por raro que sea su
+nombre: un comercio desconocido, un codigo, un numero de operacion suelto o
+una transferencia son movimientos. Que el importe sea grande no lo convierte
+en un total. Ante la duda, dejalo fuera: es peor borrar un gasto real que
+dejar una linea de mas.
+
+Responde SOLO con un JSON {{"descartar": ["descripcion exacta", ...]}}, con
+las descripciones EXACTAS como te llegaron. Si no hay ninguna, responde
+{{"descartar": []}}.
+"""
+
+
+async def find_non_movements(
+    descriptions: list[dict],
+    model: str | None = None,
+) -> list[str]:
+    """Pregunta al modelo cuales de esas descripciones no son movimientos."""
+    if not descriptions:
+        return []
+
+    lineas = []
+    for item in descriptions[:200]:
+        texto = str(item.get("descripcion", "")).strip()
+        if not texto:
+            continue
+        importe = item.get("importe")
+        veces = item.get("veces", 1)
+        detalle = f"{veces}x" if veces else ""
+        if importe is not None:
+            detalle = f"{detalle}, {importe:,.2f}" if detalle else f"{importe:,.2f}"
+        lineas.append(f"- {texto} ({detalle})" if detalle else f"- {texto}")
+    if not lineas:
+        return []
+
+    respuesta = await complete(
+        [
+            {"role": "system", "content": NOT_MOVEMENT_PROMPT.format()},
+            {"role": "user", "content": "\n".join(lineas)},
+        ],
+        model=model,
+        max_tokens=8000,
+    )
+    limpio = respuesta.strip()
+    inicio, fin = limpio.find("{"), limpio.rfind("}")
+    if inicio == -1 or fin == -1:
+        raise OpenRouterError("El modelo no devolvio un JSON reconocible.")
+    try:
+        datos = json.loads(limpio[inicio : fin + 1])
+    except ValueError as exc:
+        raise OpenRouterError("El modelo devolvio un JSON invalido.") from exc
+    descartar = datos.get("descartar") if isinstance(datos, dict) else None
+    if not isinstance(descartar, list):
+        raise OpenRouterError("El modelo no devolvio la lista 'descartar'.")
+    return [str(d).strip() for d in descartar if str(d).strip()]
+
+
 async def suggest_categories(
     descriptions: list[str] | list[dict],
     model: str | None = None,
