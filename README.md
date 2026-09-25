@@ -316,6 +316,14 @@ de dejarte descubrirlo cuando desaparecen.
 
 ## Interfaz
 
+La barra superior deja arriba solo lo que se usa a diario —Dashboard, Archivos,
+Categorías, Chat— y todo lo demás vive en el menú de usuario, arriba a la
+derecha: Ajustes, el tema y salir.
+
+El **tema claro es el que viene por defecto**, independientemente de cómo tenga
+configurado el sistema quien abra la app; el oscuro se elige desde ese menú y se
+recuerda en el navegador.
+
 Los controles del sistema están reemplazados por componentes propios, en
 `app/static/js/ui.js` y sus estilos: avisos apilados que se van solos,
 confirmaciones en diálogo (en vez de `confirm()`), desplegables con búsqueda al

@@ -70,7 +70,16 @@
     }));
 
     charts.categoria = Viz.horizontalBars(document.getElementById('chart-categoria'), data.by_category, 0);
-    charts.persona = Viz.horizontalBars(document.getElementById('chart-persona'), data.by_person, 6);
+
+    /* Con una sola persona, "por persona" y el cruce son una barra unica
+       que repite el total: ocupan media pantalla y no dicen nada. Vuelven
+       a aparecer en cuanto haya dos. */
+    const variasPersonas = (data.by_person || []).length > 1;
+    document.getElementById('card-persona').hidden = !variasPersonas;
+    document.getElementById('card-cruce').hidden = !variasPersonas;
+    if (variasPersonas) {
+      charts.persona = Viz.horizontalBars(document.getElementById('chart-persona'), data.by_person, 6);
+    }
 
     const cruce = data.person_category;
     const etiquetas = cruce.rows.map(function (r) { return r.person; });
@@ -82,7 +91,9 @@
         })
       };
     });
-    charts.cruce = Viz.stackedBars(document.getElementById('chart-cruce'), etiquetas, datasets);
+    if (variasPersonas) {
+      charts.cruce = Viz.stackedBars(document.getElementById('chart-cruce'), etiquetas, datasets);
+    }
     Viz.renderLegend(document.getElementById('legend-cruce'), datasets.map(function (d, i) {
       return { label: d.label, color: Viz.theme.series(i) };
     }));
@@ -268,11 +279,16 @@
         tr.appendChild(td);
       });
       tr.appendChild(celdaCategoria(r));
-      [r.persona, r.archivo].forEach(function (value) {
-        const td = document.createElement('td');
-        td.textContent = value;
-        tr.appendChild(td);
-      });
+      const persona = document.createElement('td');
+      persona.textContent = r.persona;
+      tr.appendChild(persona);
+      // El nombre del archivo se repite en todas las filas y es largo: se
+      // recorta y queda completo en el title.
+      const archivo = document.createElement('td');
+      archivo.className = 'col-archivo';
+      archivo.textContent = r.archivo;
+      archivo.title = r.archivo;
+      tr.appendChild(archivo);
       const importe = document.createElement('td');
       importe.className = 'num';
       importe.textContent = Viz.money(r.importe, r.moneda);

@@ -670,10 +670,63 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Menu desplegable (el de usuario, arriba a la derecha)               *
+   *                                                                     *
+   * Declarativo: un contenedor [data-menu] con un boton [data-menu-boton]
+   * y un panel [data-menu-panel]. Se cierra con Escape, al clickear      *
+   * afuera y al elegir algo.                                            *
+   * ------------------------------------------------------------------ */
+  function mejorarMenu(caja) {
+    if (caja.dataset.uiListo) return;
+    caja.dataset.uiListo = '1';
+    const boton = caja.querySelector('[data-menu-boton]');
+    const panel = caja.querySelector('[data-menu-panel]');
+    if (!boton || !panel) return;
+
+    function abierto() { return !panel.hidden; }
+
+    function cerrar(devolverFoco) {
+      if (!abierto()) return;
+      panel.hidden = true;
+      caja.classList.remove('abierto');
+      boton.setAttribute('aria-expanded', 'false');
+      document.removeEventListener('keydown', alTeclado, true);
+      document.removeEventListener('mousedown', alClickAfuera, true);
+      if (devolverFoco) boton.focus();
+    }
+
+    function alTeclado(evento) {
+      if (evento.key === 'Escape') { evento.preventDefault(); cerrar(true); }
+    }
+
+    function alClickAfuera(evento) {
+      if (!caja.contains(evento.target)) cerrar(false);
+    }
+
+    function abrir() {
+      panel.hidden = false;
+      caja.classList.add('abierto');
+      boton.setAttribute('aria-expanded', 'true');
+      document.addEventListener('keydown', alTeclado, true);
+      document.addEventListener('mousedown', alClickAfuera, true);
+      const primero = panel.querySelector('a, button');
+      if (primero) primero.focus();
+    }
+
+    boton.addEventListener('click', () => (abierto() ? cerrar(true) : abrir()));
+    // Un enlace o un submit cierran solos; el resto (cambiar el tema) no.
+    panel.addEventListener('click', (evento) => {
+      if (evento.target.closest('[data-menu-queda]')) return;
+      cerrar(false);
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
    * Arranque                                                            *
    * ------------------------------------------------------------------ */
   function mejorar(raiz) {
     const ambito = raiz || document;
+    ambito.querySelectorAll('[data-menu]').forEach(mejorarMenu);
     ambito.querySelectorAll('select').forEach(mejorarSelect);
     ambito.querySelectorAll('input[type="file"]').forEach(mejorarArchivo);
     ambito.querySelectorAll('input[type="date"]').forEach(mejorarFecha);

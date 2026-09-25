@@ -25,8 +25,21 @@ def _format_money(value: float | int | None, code: str | None = None) -> str:
     return f"{text} {(code or get_settings().currency).upper()}"
 
 
+def _current_user(request: Request) -> str:
+    """Usuario de la sesion, para la barra superior.
+
+    Se resuelve en la plantilla y no en cada router: la barra la pinta
+    base.html y ninguna vista necesitaba el nombre hasta ahora.
+    """
+    try:
+        return read_session(request) or ""
+    except Exception:  # noqa: BLE001 - la barra nunca puede tumbar la pagina
+        return ""
+
+
 templates.env.filters["money"] = _format_money
 templates.env.globals["settings"] = get_settings()
+templates.env.globals["usuario"] = _current_user
 
 
 def require_user(request: Request) -> str:

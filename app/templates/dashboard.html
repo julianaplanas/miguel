@@ -127,7 +127,7 @@
     <div class="legend" id="legend-mes"></div>
   </section>
 
-  <section class="grid grid-2" style="margin-bottom:16px">
+  <section class="grid grid-graficos" style="margin-bottom:16px">
     <div class="card">
       <div class="card-head">
         <h2>Gasto por categoria</h2>
@@ -135,17 +135,16 @@
       </div>
       <div class="chart-box"><canvas id="chart-categoria"></canvas></div>
     </div>
-    <div class="card">
+    <div class="card" id="card-persona">
       <div class="card-head">
         <h2>Gasto por persona</h2>
         <span class="hint">Total del periodo</span>
       </div>
       <div class="chart-box"><canvas id="chart-persona"></canvas></div>
     </div>
-  </section>
-
-  <section class="grid grid-2" style="margin-bottom:16px">
-    <div class="card">
+    <!-- Los cuatro graficos van en una sola grilla: con una sola persona se
+         ocultan dos y los otros dos se acomodan solos, sin dejar huecos. -->
+    <div class="card" id="card-cruce">
       <div class="card-head">
         <h2>Persona por categoria</h2>
         <span class="hint">Reparto de cada persona</span>
@@ -190,7 +189,7 @@
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Fecha</th><th>Descripcion</th><th>Categoria</th><th>Persona</th><th>Archivo</th><th class="num">Importe</th><th>Moneda</th><th><span class="sr-only">Borrar</span></th></tr>
+          <tr><th>Fecha</th><th>Descripcion</th><th>Categoria</th><th>Persona</th><th class="col-archivo">Archivo</th><th class="num">Importe</th><th>Moneda</th><th><span class="sr-only">Borrar</span></th></tr>
         </thead>
         <tbody id="tabla-movimientos"></tbody>
       </table>
