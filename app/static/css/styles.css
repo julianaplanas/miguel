@@ -275,6 +275,32 @@ tbody tr:hover { background: var(--surface-2); }
 .table-wrap { overflow-x: auto; }
 .col-archivo { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ---------- Revision previa a importar ---------- */
+.revisar-antes {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 14px;
+}
+.revisar-antes input { min-width: auto; margin: 2px 0 0; }
+.revisar-antes .file-meta { display: block; margin-top: 2px; }
+.tabla-revision input[type="checkbox"] { min-width: auto; margin: 0; }
+.tabla-revision tr.fuera td { color: var(--text-muted); text-decoration: line-through; }
+.tabla-revision tr.fuera td:first-child { text-decoration: none; }
+.ignoradas {
+  margin: 8px 0 0;
+  padding: 0 0 0 18px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
 /* ---------- Charts ---------- */
 .chart-box { position: relative; height: 280px; }
 .chart-box.tall { height: 340px; }

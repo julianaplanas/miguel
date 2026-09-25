@@ -9,6 +9,10 @@
 <p class="subtitle">
   {{ active_count }} de {{ total_files }} archivo{{ '' if total_files == 1 else 's' }} activo{{ '' if total_files == 1 else 's' }}.
   <a href="/archivos">Gestionar archivos</a>
+  {% if pending_files %}
+  · <strong>{{ pending_files }}</strong> archivo{{ '' if pending_files == 1 else 's' }}
+  sin importar: <a href="/archivos">revisalo{{ '' if pending_files == 1 else 's' }}</a>
+  {% endif %}
 </p>
 
 {% if total_files == 0 %}

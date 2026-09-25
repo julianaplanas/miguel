@@ -132,6 +132,30 @@ movimiento; en el diálogo se puede marcar **borrar todos los que digan lo
 mismo**, que es como suelen aparecer las líneas que no deberían estar. El
 borrado es definitivo: para recuperarlas hay que volver a importar el archivo.
 
+## Revisar antes de importar
+
+Subir y ver el resultado en los totales son dos pasos distintos. Al subir, la
+casilla **Revisar antes de importar** (marcada por defecto) deja el archivo
+leído pero sin importar, y abre una pantalla que muestra exactamente lo que se
+va a guardar:
+
+- Los totales por moneda de lo que entraría, para **compararlos con los del
+  propio resumen** antes de que se mezclen con el resto.
+- Fila por fila, con una casilla por fila: lo que desmarques no entra.
+- Las líneas que el lector **vio y descartó** (totales, saldos, el pago del
+  propio resumen), que hasta ahora desaparecían en silencio.
+- Cómo se mapeó cada columna, editable ahí mismo: se cambia y se vuelve a leer
+  sin tocar ningún dato.
+- Con `OPENROUTER_API_KEY`, **Revisar con el modelo** le pregunta cuáles de esas
+  líneas no son movimientos; lo que marque queda como regla y no vuelve a
+  aparecer en ninguna importación futura.
+
+Nada de eso toca la base hasta que pulsás Importar. Si subís varios archivos se
+revisan en fila, uno tras otro. Destildando la casilla se importa directo, que
+es lo cómodo cuando ya sabés cómo sale ese formato. Un archivo ya importado se
+puede volver a revisar desde su tarjeta: se relee con el lector de hoy y podés
+reimportarlo con otro mapeo o con otras filas.
+
 ## Formato de los archivos
 
 Se pueden subir **varios archivos de una vez** (cada uno queda como una entrada

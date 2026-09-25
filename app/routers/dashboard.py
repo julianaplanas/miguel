@@ -39,8 +39,22 @@ def _filters(
 
 @router.get("/", response_class=HTMLResponse)
 def dashboard_page(request: Request, db: Session = Depends(get_db), _: str = Depends(require_user)):
-    files = db.execute(select(UploadedFile).order_by(UploadedFile.uploaded_at.desc())).scalars().all()
+    # Los archivos pendientes de revision no tienen movimientos todavia:
+    # aparecerian como chips vacios que no hacen nada.
+    files = (
+        db.execute(
+            select(UploadedFile)
+            .where(UploadedFile.imported.is_(True))
+            .order_by(UploadedFile.uploaded_at.desc())
+        )
+        .scalars()
+        .all()
+    )
     active = [f for f in files if f.is_active]
+    pendientes = (
+        db.execute(select(func.count(UploadedFile.id)).where(UploadedFile.imported.is_(False))).scalar()
+        or 0
+    )
     return templates.TemplateResponse(
         request,
         "dashboard.html",
@@ -48,6 +62,7 @@ def dashboard_page(request: Request, db: Session = Depends(get_db), _: str = Dep
             "files": files,
             "active_count": len(active),
             "total_files": len(files),
+            "pending_files": pendientes,
             "options": available_options(db),
             "active_page": "dashboard",
         },

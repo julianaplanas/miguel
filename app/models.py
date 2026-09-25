@@ -41,6 +41,10 @@ class UploadedFile(Base):
     detected_columns: Mapped[str] = mapped_column(Text, default="[]")
     notes: Mapped[str] = mapped_column(Text, default="")
     default_person: Mapped[str] = mapped_column(String(120), default="")
+    # Un archivo subido pero todavia no confirmado en la pantalla de
+    # revision. Mientras sea False no tiene movimientos: no esta en el
+    # dashboard ni en los totales.
+    imported: Mapped[bool] = mapped_column(Boolean, default=False)
 
     transactions: Mapped[list["Transaction"]] = relationship(
         back_populates="file", cascade="all, delete-orphan", passive_deletes=True

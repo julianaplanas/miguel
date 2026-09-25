@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block title %}Revisar {{ file.filename }} · {{ settings.app_name }}{% endblock %}
+
+{% block content %}
+<h1>Revisar antes de importar</h1>
+<p class="subtitle">
+  <strong>{{ file.filename }}</strong> · esto es exactamente lo que se va a guardar.
+  Desmarca lo que no deberia entrar.
+  <a href="/archivos">Volver a Archivos</a>
+</p>
+
+{% if message %}<div class="flash ok" data-toast>{{ message }}</div>{% endif %}
+{% if error %}<div class="flash err" data-toast>{{ error }}</div>{% endif %}
+
+{% if file.imported %}
+<div class="flash err">
+  Este archivo <strong>ya esta importado</strong>. Si importas de nuevo, sus movimientos se
+  reemplazan por los de esta lectura.
+</div>
+{% endif %}
+
+<form method="post" action="/archivos/{{ file.id }}/revisar" id="form-revision">
+<div class="stack">
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Lo que se leyo</h2>
+      <span class="hint">{{ incluidas }} de {{ rows | length }} filas entran</span>
+    </div>
+    <div class="grid grid-2">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Moneda</th><th class="num">Gasto</th><th class="num">Ingreso</th><th class="num">Filas</th></tr>
+          </thead>
+          <tbody>
+            {% for m in por_moneda %}
+            <tr>
+              <td>{{ m.code }}</td>
+              <td class="num">{{ m.gasto | money(m.code) }}</td>
+              <td class="num">{{ m.ingreso | money(m.code) }}</td>
+              <td class="num">{{ m.filas }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4">No entra ninguna fila.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p class="file-meta" style="margin:10px 0 0">
+          Compara estos totales con los del propio resumen: si no cuadran, algo falta o algo sobra.
+          {% if desde %}Periodo: {{ desde }} a {{ hasta }}.{% endif %}
+        </p>
+      </div>
+
+      <div>
+        {% if warnings %}
+        <div class="flash err" style="margin:0 0 10px">
+          {% for w in warnings %}<div>{{ w }}</div>{% endfor %}
+        </div>
+        {% endif %}
+
+        {% if skipped %}
+        <details class="mapping">
+          <summary>
+            {{ skipped | length }} linea{{ '' if skipped | length == 1 else 's' }}
+            que el lector ignoro
+          </summary>
+          <p class="file-meta">
+            Se vieron en el documento pero no parecen movimientos (totales, saldos, el pago
+            del propio resumen). Si alguna si lo era, avisame que formato es y lo corrijo.
+          </p>
+          <ul class="ignoradas">
+            {% for linea in skipped %}<li>{{ linea }}</li>{% endfor %}
+          </ul>
+        </details>
+        {% endif %}
+
+        <div class="file-actions" style="margin-top:10px">
+          {% if chat_enabled %}
+          <button type="submit" name="accion" value="modelo" class="btn-sm"
+                  title="Le pregunta al modelo cuales de estas lineas no son movimientos">
+            Revisar con el modelo
+          </button>
+          {% endif %}
+          <button type="submit" name="accion" value="leer" class="btn-sm">Volver a leer</button>
+        </div>
+        <p class="file-meta" style="margin:8px 0 0">
+          <strong>Volver a leer</strong> aplica los cambios de columnas de abajo y vuelve a
+          empezar (se pierden las marcas). Nada de esto toca todavia tus datos.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <details class="card mapping" {{ 'open' if not mapping.get('date') or not mapping.get('amount') }}>
+    <summary><strong>Como se leyeron las columnas</strong> ({{ mapping | length }} campos)</summary>
+    <div class="mapping-grid" style="margin-top:12px">
+      {% for campo in fields %}
+      <div class="field">
+        <label for="{{ campo }}">{{ {
+          'date': 'Fecha', 'amount': 'Importe', 'description': 'Descripcion',
+          'category': 'Categoria', 'person': 'Persona', 'account': 'Cuenta',
+          'currency': 'Moneda', 'kind': 'Tipo (ingreso/gasto)'
+        }[campo] }}</label>
+        <select id="{{ campo }}" name="{{ campo }}">
+          <option value="">— ninguna —</option>
+          {% for col in columns %}
+          <option value="{{ col }}" {{ 'selected' if mapping.get(campo) == col }}>{{ col }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endfor %}
+      <div class="field">
+        <label for="default_person">Persona por defecto</label>
+        <input id="default_person" type="text" name="default_person"
+               value="{{ file.default_person }}" placeholder="Ej: Miguel">
+      </div>
+      <div class="field">
+        <label for="default_currency">Moneda del archivo</label>
+        <select id="default_currency" name="default_currency">
+          {% set elegida = mapping.get('default_currency') or base_currency %}
+          {% for c in currencies %}
+          <option value="{{ c }}" {{ 'selected' if c == elegida }}>{{ currency_label(c) }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="invert_sign">Signo</label>
+        <select id="invert_sign" name="invert_sign">
+          <option value="" {{ 'selected' if not mapping.get('invert_sign') }}>Positivo = gasto</option>
+          <option value="1" {{ 'selected' if mapping.get('invert_sign') }}>Negativo = gasto (invertir)</option>
+        </select>
+      </div>
+    </div>
+    <p class="file-meta" style="margin:10px 0 0">
+      La moneda del archivo solo se aplica a las filas que no traigan la suya (una columna de
+      moneda, o un <code>US$</code> en el importe).
+    </p>
+  </details>
+
+  <div class="card">
+    <div class="card-head">
+      <h2>Filas</h2>
+      <div style="display:flex; gap:8px; align-items:center">
+        <span class="hint" id="contador-filas">{{ incluidas }} marcadas</span>
+        <button type="button" class="btn-sm" id="marcar-todas">Marcar todas</button>
+        <button type="button" class="btn-sm" id="desmarcar-todas">Desmarcar todas</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="tabla-revision">
+        <thead>
+          <tr>
+            <th style="width:36px"><span class="sr-only">Incluir</span></th>
+            <th>Fecha</th>
+            <th>Descripcion</th>
+            <th>Categoria</th>
+            <th class="num">Importe</th>
+            <th>Moneda</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in rows %}
+          <tr class="{{ 'fuera' if not r.incluida }}">
+            <td>
+              <input type="checkbox" name="incluir" value="{{ r.i }}"
+                     {{ 'checked' if r.incluida }} data-fila="{{ r.i }}"
+                     aria-label="Incluir {{ r.descripcion }}">
+            </td>
+            <td>{{ r.fecha or '—' }}</td>
+            <td>
+              {{ r.descripcion or '—' }}
+              {% if r.motivo %}<span class="file-meta"> · {{ r.motivo }}</span>{% endif %}
+            </td>
+            <td>{{ r.categoria or '—' }}</td>
+            <td class="num">{{ r.importe | money(r.moneda) }}</td>
+            <td>{{ r.moneda }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="file-row">
+      <div class="file-meta">
+        Al importar se guardan las filas marcadas y se les pone categoria.
+        {% if pendientes %}
+        Despues de esta sigue{{ 'n' if pendientes | length > 1 }}
+        <strong>{{ pendientes | length }}</strong> archivo{{ 's' if pendientes | length > 1 }} mas por revisar.
+        {% endif %}
+      </div>
+      <div class="file-actions">
+        <!-- El form de descartar vive fuera (no se pueden anidar): el boton
+             lo referencia con form=. -->
+        <button type="submit" class="btn-sm btn-danger" form="form-descartar">
+          Descartar archivo
+        </button>
+        <button type="submit" name="accion" value="importar" class="btn-primary">
+          Importar <span id="contador-boton">{{ incluidas }}</span> filas
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+</form>
+
+<form method="post" action="/archivos/{{ file.id }}/delete" id="form-descartar"
+      data-confirmar-titulo="Descartar archivo"
+      data-confirmar="Se borra {{ file.filename }} sin importar nada de lo que tiene."
+      data-confirmar-aceptar="Descartar"
+      data-confirmar-peligroso></form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  /* Las filas van marcadas por inclusion, pero al servidor se le manda lo
+     EXCLUIDO: un checkbox desmarcado no se envia, asi que sin esto no habria
+     forma de distinguir "desmarcada" de "no existe". */
+  (function () {
+    const form = document.getElementById('form-revision');
+    const casillas = Array.from(form.querySelectorAll('input[name="incluir"]'));
+    const contador = document.getElementById('contador-filas');
+    const enBoton = document.getElementById('contador-boton');
+
+    function pintar() {
+      const marcadas = casillas.filter(function (c) { return c.checked; }).length;
+      contador.textContent = marcadas + ' marcadas';
+      enBoton.textContent = marcadas;
+      casillas.forEach(function (c) {
+        c.closest('tr').classList.toggle('fuera', !c.checked);
+      });
+    }
+
+    casillas.forEach(function (c) { c.addEventListener('change', pintar); });
+    document.getElementById('marcar-todas').addEventListener('click', function () {
+      casillas.forEach(function (c) { c.checked = true; });
+      pintar();
+    });
+    document.getElementById('desmarcar-todas').addEventListener('click', function () {
+      casillas.forEach(function (c) { c.checked = false; });
+      pintar();
+    });
+
+    form.addEventListener('submit', function () {
+      form.querySelectorAll('input[name="excluir"]').forEach(function (i) { i.remove(); });
+      casillas.filter(function (c) { return !c.checked; }).forEach(function (c) {
+        const oculto = document.createElement('input');
+        oculto.type = 'hidden';
+        oculto.name = 'excluir';
+        oculto.value = c.value;
+        form.appendChild(oculto);
+      });
+    });
+
+    pintar();
+  })();
+</script>
+{% endblock %}

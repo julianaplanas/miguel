@@ -32,8 +32,18 @@
         {% endfor %}
       </select>
     </div>
-    <button class="btn-primary" type="submit">Subir e importar</button>
+    <button class="btn-primary" type="submit">Subir</button>
   </div>
+  <label class="revisar-antes">
+    <input type="checkbox" name="revisar" value="1" checked>
+    <span>
+      <strong>Revisar antes de importar</strong>
+      <span class="file-meta">
+        Muestra fila por fila que se saco del documento —y que ignoro— antes de que entre
+        en los totales. Destildalo para importar directo, cuando ya sabes como sale ese formato.
+      </span>
+    </span>
+  </label>
 </form>
 
 {% if files %}
@@ -75,28 +85,37 @@
       <div>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
           <strong>{{ f.filename }}</strong>
-          {% if f.is_active %}
+          {% if not f.imported %}
+            <span class="badge off"><span class="dot"></span>Sin importar</span>
+          {% elif f.is_active %}
             <span class="badge on"><span class="dot"></span>Activo</span>
           {% else %}
             <span class="badge off"><span class="dot"></span>Inactivo</span>
           {% endif %}
         </div>
         <div class="file-meta">
-          {{ f.row_count }} movimientos · {{ (f.size_bytes / 1024) | round(1) }} KB ·
+          {% if f.imported %}{{ f.row_count }} movimientos{% else %}{{ f.row_count }} filas leidas,
+          sin importar{% endif %} · {{ (f.size_bytes / 1024) | round(1) }} KB ·
           subido el {{ f.uploaded_at.strftime('%d/%m/%Y %H:%M') }}
           {% if f.default_person %} · persona por defecto: {{ f.default_person }}{% endif %}
         </div>
         {% if f.notes %}<div class="file-meta" style="color:var(--warning)">{{ f.notes }}</div>{% endif %}
       </div>
       <div class="file-actions">
+        {% if not f.imported %}
+        <a class="btn btn-sm btn-primary" href="/archivos/{{ f.id }}/revisar">Revisar e importar</a>
+        {% else %}
         <form method="post" action="/archivos/{{ f.id }}/toggle">
           <input type="hidden" name="redirect_to" value="/archivos">
           <button type="submit" class="btn-sm">{{ 'Desactivar' if f.is_active else 'Activar' }}</button>
         </form>
+        <a class="btn btn-sm" href="/archivos/{{ f.id }}/revisar"
+           title="Vuelve a leerlo y muestra que saldria, sin tocar nada hasta que confirmes">Revisar</a>
         <form method="post" action="/archivos/{{ f.id }}/reprocesar">
           <button type="submit" class="btn-sm"
                   title="Vuelve a leer el archivo guardado con el lector actual">Reprocesar</button>
         </form>
+        {% endif %}
         <a class="btn btn-sm" href="/archivos/{{ f.id }}/descargar">Descargar</a>
         <form method="post" action="/archivos/{{ f.id }}/delete"
               data-confirmar-titulo="Eliminar archivo"
@@ -108,55 +127,12 @@
       </div>
     </div>
 
-    <details class="mapping">
-      <summary>Mapeo de columnas ({{ item.mapping | length }} campos detectados)</summary>
-      <form method="post" action="/archivos/{{ f.id }}/remap">
-        <div class="mapping-grid">
-          {% for campo in fields %}
-          <div class="field">
-            <label for="{{ campo }}-{{ f.id }}">{{ {
-              'date': 'Fecha', 'amount': 'Importe', 'description': 'Descripcion',
-              'category': 'Categoria', 'person': 'Persona', 'account': 'Cuenta',
-              'currency': 'Moneda', 'kind': 'Tipo (ingreso/gasto)'
-            }[campo] }}</label>
-            <select id="{{ campo }}-{{ f.id }}" name="{{ campo }}">
-              <option value="">— ninguna —</option>
-              {% for col in item.columns %}
-              <option value="{{ col }}" {{ 'selected' if item.mapping.get(campo) == col }}>{{ col }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          {% endfor %}
-          <div class="field">
-            <label for="default_person-{{ f.id }}">Persona por defecto</label>
-            <input id="default_person-{{ f.id }}" type="text" name="default_person" value="{{ f.default_person }}">
-          </div>
-          <div class="field">
-            <label for="moneda-{{ f.id }}">Moneda del archivo</label>
-            <select id="moneda-{{ f.id }}" name="default_currency">
-              {% set elegida = item.mapping.get('default_currency') or base_currency %}
-              {% for c in currencies %}
-              <option value="{{ c }}" {{ 'selected' if c == elegida }}>{{ currency_label(c) }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="field">
-            <label for="invert-{{ f.id }}">Signo</label>
-            <select id="invert-{{ f.id }}" name="invert_sign">
-              <option value="" {{ 'selected' if not item.mapping.get('invert_sign') }}>Positivo = gasto</option>
-              <option value="1" {{ 'selected' if item.mapping.get('invert_sign') }}>Negativo = gasto (invertir)</option>
-            </select>
-          </div>
-        </div>
-        <div style="margin-top:12px; display:flex; gap:8px; align-items:center">
-          <button type="submit" class="btn-primary btn-sm">Guardar y reimportar</button>
-          <span class="hint" style="color:var(--text-muted); font-size:12px">
-            Reimportar reemplaza los movimientos de este archivo. La moneda del archivo solo se aplica
-            a las filas que no traigan la suya (columna de moneda o un <code>US$</code> en el importe).
-          </span>
-        </div>
-      </form>
-    </details>
+    {% if f.imported %}
+    <div class="file-meta" style="margin-top:8px">
+      {{ item.mapping | length }} columnas mapeadas.
+      <a href="/archivos/{{ f.id }}/revisar">Ver o cambiar como se lee este archivo</a>
+    </div>
+    {% endif %}
   </div>
   {% endfor %}
 </div>

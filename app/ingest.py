@@ -71,14 +71,16 @@ def normalize_header(value: Any) -> str:
     return text.strip()
 
 
-def read_table(path: str | Path, raw: bytes | None = None) -> pd.DataFrame:
+def read_table(
+    path: str | Path, raw: bytes | None = None, skipped: list[str] | None = None
+) -> pd.DataFrame:
     """Lee un CSV/TSV/Excel en un DataFrame, tolerando encodings y separadores."""
     path = Path(path)
     suffix = path.suffix.lower()
     data = raw if raw is not None else path.read_bytes()
 
     if suffix == ".pdf":
-        return extract_pdf_rows(data)
+        return extract_pdf_rows(data, skipped)
 
     if suffix in {".xlsx", ".xlsm", ".xls"}:
         return pd.read_excel(io.BytesIO(data), dtype=object)
@@ -221,6 +223,10 @@ class ParsedFile:
     mapping: dict[str, Any] = field(default_factory=dict)
     columns: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Lineas que el lector vio y decidio no importar (totales, saldos).
+    # Se muestran en la revision: lo que se descarta en silencio no se
+    # puede comprobar.
+    skipped: list[str] = field(default_factory=list)
 
     @property
     def row_count(self) -> int:
@@ -252,7 +258,8 @@ def parse_file(
     La moneda de cada fila sale, por orden: de la columna de moneda, de un
     simbolo dentro del propio importe ('US$ 1.200'), o de `default_currency`.
     """
-    df = read_table(path, raw=raw)
+    saltadas: list[str] = []
+    df = read_table(path, raw=raw, skipped=saltadas)
     df = df.dropna(how="all")
     columns = [str(c) for c in df.columns]
     df.columns = columns
@@ -351,4 +358,6 @@ def parse_file(
     if not rows:
         raise ValueError("El archivo no contiene filas con importes validos.")
 
-    return ParsedFile(rows=rows, mapping=mapping, columns=columns, warnings=warnings)
+    return ParsedFile(
+        rows=rows, mapping=mapping, columns=columns, warnings=warnings, skipped=saltadas
+    )

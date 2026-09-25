@@ -116,6 +116,17 @@ def _is_movement(descripcion: str) -> bool:
     return primera not in SKIP_FIRST_WORDS
 
 
+def _anotar(skipped: list[str] | None, fecha: str, descripcion: str, importe: str) -> None:
+    """Deja constancia de una linea que se leyo pero no se importa.
+
+    Lo que el lector descarta en silencio no se puede revisar: esta lista
+    es lo que se muestra en la pantalla de revision antes de importar.
+    """
+    if skipped is None:
+        return
+    skipped.append(f"{fecha}  {descripcion}  {importe}".strip())
+
+
 class PdfImportError(ValueError):
     """El PDF no se pudo leer como lista de movimientos."""
 
@@ -190,7 +201,9 @@ def _amounts(line: str) -> list[tuple[str, str, int]]:
     return encontrados
 
 
-def _rows_from_lines(lineas: list[str], year_hint: int | None) -> list[dict[str, Any]]:
+def _rows_from_lines(
+    lineas: list[str], year_hint: int | None, skipped: list[str] | None = None
+) -> list[dict[str, Any]]:
     candidatas: list[tuple[str, str, list[tuple[str, str, int]]]] = []
     for linea in lineas:
         fecha_match = DATE_RE.match(linea)
@@ -220,6 +233,7 @@ def _rows_from_lines(lineas: list[str], year_hint: int | None) -> list[dict[str,
         numero, moneda, posicion = importes[0]
         descripcion = re.sub(r"\s{2,}", " ", resto[:posicion].strip(" .-\t"))
         if not _is_movement(descripcion):
+            _anotar(skipped, fecha, descripcion, numero)
             continue
         filas.append(
             {
@@ -299,6 +313,7 @@ def _rows_from_layout(
     lineas: list[list[dict[str, Any]]],
     columnas: list[tuple[float, float, str]],
     year_hint: int | None,
+    skipped: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Movimientos de un resumen con columnas de pesos y dolares.
 
@@ -342,6 +357,7 @@ def _rows_from_layout(
             continue
         texto = " ".join(descripcion).strip(" .-\t")
         if not texto or not _is_movement(texto):
+            _anotar(skipped, fecha, texto, elegido[0])
             continue
         filas.append(
             {
@@ -354,7 +370,9 @@ def _rows_from_layout(
     return filas
 
 
-def _rows_from_tables(page: Any, year_hint: int | None) -> list[dict[str, Any]]:
+def _rows_from_tables(
+    page: Any, year_hint: int | None, skipped: list[str] | None = None
+) -> list[dict[str, Any]]:
     try:
         tablas = page.extract_tables()
     except Exception:  # noqa: BLE001
@@ -393,6 +411,7 @@ def _rows_from_tables(page: Any, year_hint: int | None) -> list[dict[str, Any]]:
             numero, moneda, _ = importes[0]
             descripcion = str(cruda[col_desc] or "").strip() if col_desc is not None else ""
             if not _is_movement(descripcion):
+                _anotar(skipped, fecha, descripcion, numero)
                 continue
             filas.append(
                 {
@@ -405,8 +424,12 @@ def _rows_from_tables(page: Any, year_hint: int | None) -> list[dict[str, Any]]:
     return filas
 
 
-def extract_rows(data: bytes) -> pd.DataFrame:
-    """Devuelve los movimientos del PDF como DataFrame (fecha/descripcion/importe/moneda)."""
+def extract_rows(data: bytes, skipped: list[str] | None = None) -> pd.DataFrame:
+    """Devuelve los movimientos del PDF como DataFrame (fecha/descripcion/importe/moneda).
+
+    En `skipped`, si se pasa, quedan las lineas que se leyeron pero no se
+    importan (totales, saldos): sin eso no hay forma de revisarlas.
+    """
     paginas = list(_pages(data))
     if not paginas:
         raise PdfImportError("El PDF no tiene paginas.")
@@ -429,7 +452,7 @@ def extract_rows(data: bytes) -> pd.DataFrame:
 
     filas: list[dict[str, Any]] = []
     for page in paginas:
-        filas.extend(_rows_from_tables(page, year_hint))
+        filas.extend(_rows_from_tables(page, year_hint, skipped))
 
     if not filas:
         por_pagina = [_page_lines(page) for page in paginas]
@@ -440,10 +463,10 @@ def extract_rows(data: bytes) -> pd.DataFrame:
         # lector de texto plano de abajo alcanza y esta mas probado.
         if any(codigo == "USD" for _, _, codigo in columnas):
             for lineas in por_pagina:
-                filas.extend(_rows_from_layout(lineas, columnas, year_hint))
+                filas.extend(_rows_from_layout(lineas, columnas, year_hint, skipped))
 
     if not filas:
-        filas = _rows_from_lines(texto_completo.splitlines(), year_hint)
+        filas = _rows_from_lines(texto_completo.splitlines(), year_hint, skipped)
 
     if not filas:
         raise PdfImportError(
