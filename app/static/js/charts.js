@@ -124,12 +124,65 @@
     }, axis || {});
   }
 
+  /* Color estable por etiqueta.
+
+     La misma categoria tiene siempre el mismo color, en cualquier grafico y
+     con cualquier filtro: el color sigue a la categoria, no a su puesto en
+     el ranking. Si se asignara por posicion, filtrar un mes repintaria todo
+     y dos graficos de la misma pantalla se contradirian.
+
+     Los slots son los ocho de la paleta (validados para pares contiguos).
+     Con mas de ocho categorias hay repeticion, que aqui es aceptable porque
+     cada barra lleva su etiqueta al lado: el color acompana, no identifica
+     el solo. */
+  const SLOTS = 8;
+
+  function slotFor(label) {
+    let hash = 0;
+    const texto = String(label || '');
+    for (let i = 0; i < texto.length; i++) {
+      hash = (hash * 31 + texto.charCodeAt(i)) >>> 0;
+    }
+    return hash % SLOTS;
+  }
+
+  /* Para un grafico con varias series a la vez hace falta ademas que no se
+     repitan entre ellas: se respeta el slot estable de cada una y, si ya
+     esta tomado, se pasa al siguiente libre. */
+  function assignSlots(labels) {
+    const usados = new Set();
+    return labels.map(function (label) {
+      let slot = slotFor(label);
+      for (let i = 0; i < SLOTS && usados.has(slot); i++) {
+        slot = (slot + 1) % SLOTS;
+      }
+      usados.add(slot);
+      return slot;
+    });
+  }
+
+  function colorFor(label) {
+    return theme.series(slotFor(label));
+  }
+
+  /* Colores de un conjunto de series: el estable de cada una, sin repetir
+     dentro del mismo grafico. La leyenda tiene que pedirlos por aca para
+     no contradecir al grafico. */
+  function colorsFor(labels) {
+    return assignSlots(labels).map(theme.series);
+  }
+
   /* Barras horizontales de una sola serie: sin leyenda (el titulo nombra la serie),
      extremos redondeados de 4px anclados a la linea base. */
   function horizontalBars(canvas, items, colorIndex) {
     const labels = items.map(function (i) { return i.label; });
     const data = items.map(function (i) { return i.value; });
-    const color = theme.series(colorIndex === undefined ? 0 : colorIndex);
+    // Con colorIndex 'auto' cada barra lleva su propio color: el estable de
+    // su etiqueta, o el siguiente libre si ese ya lo tiene otra barra del
+    // mismo grafico. Dos barras seguidas del mismo color parecen un error.
+    const color = colorIndex === 'auto'
+      ? colorsFor(labels)
+      : theme.series(colorIndex === undefined ? 0 : colorIndex);
     return new Chart(canvas, {
       type: 'bar',
       data: {
@@ -152,7 +205,9 @@
   }
 
   function verticalBars(canvas, items, colorIndex) {
-    const color = theme.series(colorIndex === undefined ? 0 : colorIndex);
+    const color = colorIndex === 'auto'
+      ? colorsFor(items.map(function (i) { return i.label; }))
+      : theme.series(colorIndex === undefined ? 0 : colorIndex);
     return new Chart(canvas, {
       type: 'bar',
       data: {
@@ -203,7 +258,11 @@
   }
 
   /* Barras apiladas: 2px de hueco (del color de la superficie) entre segmentos. */
-  function stackedBars(canvas, labels, seriesList) {
+  /* Apilado. `vertical` pone las categorias del eje abajo (meses) en vez de
+     a la izquierda. Los colores son los estables de cada serie, sin repetir
+     dentro del mismo grafico. */
+  function stackedBars(canvas, labels, seriesList, vertical) {
+    const colores = colorsFor(seriesList.map(function (s) { return s.label; }));
     return new Chart(canvas, {
       type: 'bar',
       data: {
@@ -212,7 +271,7 @@
           return {
             label: s.label,
             data: s.data,
-            backgroundColor: theme.series(i),
+            backgroundColor: colores[i],
             borderColor: theme.surface,
             borderWidth: 2,
             borderRadius: 4,
@@ -221,7 +280,12 @@
           };
         })
       },
-      options: baseOptions({
+      options: baseOptions(vertical ? {
+        scales: {
+          y: Object.assign(moneyScale({ beginAtZero: true }), { stacked: true }),
+          x: Object.assign(categoryScale(), { stacked: true })
+        }
+      } : {
         indexAxis: 'y',
         scales: {
           x: Object.assign(moneyScale({ beginAtZero: true }), { stacked: true }),
@@ -269,6 +333,8 @@
 
   window.Viz = {
     theme: theme,
+    colorFor: colorFor,
+    colorsFor: colorsFor,
     money: money,
     setCurrency: setCurrency,
     pointValue: pointValue,

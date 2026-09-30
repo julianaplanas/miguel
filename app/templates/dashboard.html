@@ -44,6 +44,13 @@
 
 <form class="filters" id="filtros">
   <div class="field">
+    <label for="mes">Mes</label>
+    <select id="mes">
+      <option value="">Todos los meses</option>
+      {% for m in options.months %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
     <label for="desde">Desde</label>
     <input type="date" id="desde" name="desde" value="{{ options.date_min or '' }}">
   </div>
@@ -135,7 +142,7 @@
     <div class="card">
       <div class="card-head">
         <h2>Gasto por categoria</h2>
-        <span class="hint">Top categorias</span>
+        <span class="hint">Todas, de mayor a menor</span>
       </div>
       <div class="chart-box"><canvas id="chart-categoria"></canvas></div>
     </div>
@@ -156,12 +163,13 @@
       <div class="chart-box tall"><canvas id="chart-cruce"></canvas></div>
       <div class="legend" id="legend-cruce"></div>
     </div>
-    <div class="card">
+    <div class="card" id="card-mes-categoria">
       <div class="card-head">
-        <h2>Gasto por dia de la semana</h2>
-        <span class="hint">Suma del periodo</span>
+        <h2>Categorias mes a mes</h2>
+        <span class="hint">Cuanto se fue en cada una, cada mes</span>
       </div>
-      <div class="chart-box tall"><canvas id="chart-semana"></canvas></div>
+      <div class="chart-box tall"><canvas id="chart-mes-categoria"></canvas></div>
+      <div class="legend" id="legend-mes-categoria"></div>
     </div>
   </section>
 
@@ -189,14 +197,23 @@
       <span class="hint" id="movimientos-total"></span>
     </summary>
     <p class="subtitle" style="margin:0 0 10px; font-size:13px">
-      Hace click en una categoria para cambiarla, o en la cruz del final para
-      borrar un movimiento que no deberia estar.
+      Hace click en una categoria para cambiarla, en una cabecera para ordenar por
+      esa columna, o en la cruz del final para borrar un movimiento que no deberia estar.
       <a href="/categorias">Ver las reglas</a>
     </p>
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Fecha</th><th>Descripcion</th><th>Categoria</th><th>Persona</th><th class="col-archivo">Archivo</th><th class="num">Importe</th><th>Moneda</th><th><span class="sr-only">Borrar</span></th></tr>
+          <tr>
+            <th><button type="button" class="orden" data-orden="fecha">Fecha</button></th>
+            <th><button type="button" class="orden" data-orden="descripcion">Descripcion</button></th>
+            <th><button type="button" class="orden" data-orden="categoria">Categoria</button></th>
+            <th><button type="button" class="orden" data-orden="persona">Persona</button></th>
+            <th class="col-archivo"><button type="button" class="orden" data-orden="archivo">Archivo</button></th>
+            <th class="num"><button type="button" class="orden" data-orden="importe">Importe</button></th>
+            <th><button type="button" class="orden" data-orden="moneda">Moneda</button></th>
+            <th><span class="sr-only">Borrar</span></th>
+          </tr>
         </thead>
         <tbody id="tabla-movimientos"></tbody>
       </table>

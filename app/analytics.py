@@ -252,7 +252,7 @@ def build_summary(db: Session, filters: Filters, top_n: int = 8) -> dict[str, An
     por_mes: dict[str, float] = defaultdict(float)
     por_mes_ingreso: dict[str, float] = defaultdict(float)
     por_persona_categoria: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
-    por_dia: dict[int, float] = defaultdict(float)
+    por_mes_categoria: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     por_moneda: dict[str, dict[str, float]] = defaultdict(lambda: {"gasto": 0.0, "ingreso": 0.0, "movimientos": 0})
 
     for r in todas:
@@ -268,8 +268,9 @@ def build_summary(db: Session, filters: Filters, top_n: int = 8) -> dict[str, An
         por_persona[r["person"]] += r["valor"]
         por_persona_categoria[r["person"]][r["category"]] += r["valor"]
         if r["date"]:
-            por_mes[r["date"].strftime("%Y-%m")] += r["valor"]
-            por_dia[r["date"].weekday()] += r["valor"]
+            mes = r["date"].strftime("%Y-%m")
+            por_mes[mes] += r["valor"]
+            por_mes_categoria[mes][r["category"]] += r["valor"]
     for r in ingresos:
         if r["date"]:
             por_mes_ingreso[r["date"].strftime("%Y-%m")] += -r["valor"]
@@ -277,9 +278,30 @@ def build_summary(db: Session, filters: Filters, top_n: int = 8) -> dict[str, An
     meses = sorted(set(por_mes) | set(por_mes_ingreso))
     fechas = [r["date"] for r in rows if r["date"]]
 
-    top_categorias = _sorted_totals(por_categoria, top_n)
-    etiquetas_top = [c["label"] for c in top_categorias if c["label"] != "Otros"]
+    # El ranking lleva TODAS las categorias: cada una tiene su etiqueta al
+    # lado, asi que no hay motivo para esconder las propias en un "Otros".
+    categorias = _sorted_totals(por_categoria)
+    # Los graficos apilados si necesitan un tope: mas de ocho series a la vez
+    # no se distinguen por color.
+    etiquetas_top = [c["label"] for c in _sorted_totals(por_categoria, top_n)
+                     if c["label"] != "Otros"]
     personas = [p["label"] for p in _sorted_totals(por_persona)]
+
+    # Reparto por mes: cuanto se gasto en cada categoria cada mes. Es lo que
+    # permite comparar un mes con otro en vez de ver todo acumulado.
+    etiquetas_mes = [
+        c["label"] for c in _sorted_totals(por_categoria, min(top_n, 7))
+        if c["label"] != "Otros"
+    ]
+    filas_mes = []
+    for mes in meses:
+        totales = por_mes_categoria.get(mes, {})
+        fila = {"month": mes, "values": [round(totales.get(e, 0.0), 2) for e in etiquetas_mes]}
+        fila["others"] = round(
+            sum(v for k, v in totales.items() if k not in etiquetas_mes), 2
+        )
+        filas_mes.append(fila)
+    hay_otros_mes = any(f["others"] for f in filas_mes)
 
     cruce = []
     for persona in personas:
@@ -291,7 +313,6 @@ def build_summary(db: Session, filters: Filters, top_n: int = 8) -> dict[str, An
         fila["others"] = round(otros, 2)
         cruce.append(fila)
 
-    dias = ["Lun", "Mar", "Mie", "Jue", "Vie", "Sab", "Dom"]
     top_transacciones = sorted(gastos, key=lambda r: r["valor"], reverse=True)[:15]
 
     return {
@@ -326,7 +347,7 @@ def build_summary(db: Session, filters: Filters, top_n: int = 8) -> dict[str, An
             "date_min": min(fechas).isoformat() if fechas else None,
             "date_max": max(fechas).isoformat() if fechas else None,
         },
-        "by_category": top_categorias,
+        "by_category": categorias,
         "by_person": _sorted_totals(por_persona),
         "by_month": [
             {
@@ -336,9 +357,10 @@ def build_summary(db: Session, filters: Filters, top_n: int = 8) -> dict[str, An
             }
             for m in meses
         ],
-        "by_weekday": [
-            {"label": dias[i], "value": round(por_dia.get(i, 0.0), 2)} for i in range(7)
-        ],
+        "month_category": {
+            "categories": etiquetas_mes + (["Otros"] if hay_otros_mes else []),
+            "rows": filas_mes,
+        },
         "person_category": {
             "categories": etiquetas_top + (["Otros"] if any(f["others"] for f in cruce) else []),
             "rows": cruce,
@@ -392,4 +414,7 @@ def available_options(db: Session) -> dict[str, Any]:
         ),
         "date_min": min(fechas).isoformat() if fechas else None,
         "date_max": max(fechas).isoformat() if fechas else None,
+        # Meses con movimientos, para el selector: elegir uno es mas comodo
+        # que escribir dos fechas.
+        "months": sorted({f.strftime("%Y-%m") for f in fechas}, reverse=True),
     }

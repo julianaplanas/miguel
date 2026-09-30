@@ -273,6 +273,31 @@ th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: 
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tbody tr:hover { background: var(--surface-2); }
 .table-wrap { overflow-x: auto; }
+/* Cabeceras ordenables de la tabla de movimientos. */
+th .orden {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+th .orden:hover { color: var(--text-primary); }
+th .orden::after {
+  content: "\2195";           /* flechas arriba/abajo: ordenable */
+  opacity: .35;
+  font-size: 11px;
+}
+th .orden.activo { color: var(--text-primary); }
+th .orden[data-dir="asc"]::after { content: "\2191"; opacity: 1; }
+th .orden[data-dir="desc"]::after { content: "\2193"; opacity: 1; }
+th.num .orden { flex-direction: row-reverse; }
+
 .col-archivo { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- Revision previa a importar ---------- */

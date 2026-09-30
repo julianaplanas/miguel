@@ -8,6 +8,9 @@
   let categoriasConocidas = [];
   let offset = 0;
   const PAGINA = 100;
+  // Orden de la tabla de movimientos. Va al servidor porque la tabla esta
+  // paginada: ordenar solo lo cargado daria un orden falso.
+  let orden = { campo: 'fecha', dir: 'desc' };
 
   function queryString() {
     const params = new URLSearchParams();
@@ -69,7 +72,12 @@
       return { label: s.label, color: Viz.theme.series(s.colorIndex === undefined ? i : s.colorIndex) };
     }));
 
-    charts.categoria = Viz.horizontalBars(document.getElementById('chart-categoria'), data.by_category, 0);
+    /* El alto crece con la cantidad de categorias: con todas listadas, una
+       caja fija las apretaba arriba y dejaba media tarjeta vacia. */
+    const lienzoCategoria = document.getElementById('chart-categoria');
+    lienzoCategoria.parentElement.style.height =
+      Math.max(220, data.by_category.length * 30 + 60) + 'px';
+    charts.categoria = Viz.horizontalBars(lienzoCategoria, data.by_category, 'auto');
 
     /* Con una sola persona, "por persona" y el cruce son una barra unica
        que repite el total: ocupan media pantalla y no dicen nada. Vuelven
@@ -78,7 +86,7 @@
     document.getElementById('card-persona').hidden = !variasPersonas;
     document.getElementById('card-cruce').hidden = !variasPersonas;
     if (variasPersonas) {
-      charts.persona = Viz.horizontalBars(document.getElementById('chart-persona'), data.by_person, 6);
+      charts.persona = Viz.horizontalBars(document.getElementById('chart-persona'), data.by_person, 'auto');
     }
 
     const cruce = data.person_category;
@@ -94,11 +102,34 @@
     if (variasPersonas) {
       charts.cruce = Viz.stackedBars(document.getElementById('chart-cruce'), etiquetas, datasets);
     }
+    const coloresCruce = Viz.colorsFor(datasets.map(function (d) { return d.label; }));
     Viz.renderLegend(document.getElementById('legend-cruce'), datasets.map(function (d, i) {
-      return { label: d.label, color: Viz.theme.series(i) };
+      return { label: d.label, color: coloresCruce[i] };
     }));
 
-    charts.semana = Viz.verticalBars(document.getElementById('chart-semana'), data.by_weekday, 0);
+    /* Categorias mes a mes: apilado, con los meses abajo. Responde las dos
+       preguntas de una: cuanto se fue en cada categoria cada mes, y como
+       se compara un mes con otro. */
+    const porMes = data.month_category || { categories: [], rows: [] };
+    const cardMes = document.getElementById('card-mes-categoria');
+    cardMes.hidden = porMes.rows.length < 2;
+    if (!cardMes.hidden) {
+      const meses = porMes.rows.map(function (r) { return Viz.monthLabel(r.month); });
+      const series = porMes.categories.map(function (cat, idx) {
+        return {
+          label: cat,
+          data: porMes.rows.map(function (r) {
+            return cat === 'Otros' ? r.others : (r.values[idx] || 0);
+          })
+        };
+      });
+      charts.mesCategoria = Viz.stackedBars(
+        document.getElementById('chart-mes-categoria'), meses, series, true
+      );
+      const coloresMes = Viz.colorsFor(series.map(function (s) { return s.label; }));
+      Viz.renderLegend(document.getElementById('legend-mes-categoria'),
+        series.map(function (s, i) { return { label: s.label, color: coloresMes[i] }; }));
+    }
   }
 
   function pintarTop(rows) {
@@ -202,7 +233,21 @@
         avisar(data.aplicados > 1
           ? categoria + ': se aplico a ' + data.aplicados + ' movimientos.'
           : 'Categoria actualizada.');
-        cargar();
+        // La fila se actualiza donde esta, y si la regla se aplico a otras
+        // con la misma descripcion, esas tambien. La lista no se recarga:
+        // no se pierde el scroll ni el orden.
+        r.categoria = categoria;
+        td.replaceWith(celdaCategoria(r));
+        if (check.checked) {
+          document.querySelectorAll('#tabla-movimientos tr').forEach(function (fila) {
+            if (fila.dataset.descripcion !== r.descripcion) return;
+            const celda = fila.querySelector('.cat-edit');
+            if (!celda) return;
+            celda.textContent = categoria;
+            celda.classList.toggle('vacia', categoria === 'Sin categoria');
+          });
+        }
+        cargarResumen();
       } catch (e) {
         avisar('No se pudo guardar: ' + e.message, true);
         guardar.disabled = false;
@@ -261,7 +306,17 @@
       avisar(data.borrados > 1
         ? 'Se borraron ' + data.borrados + ' movimientos.'
         : 'Movimiento borrado.');
-      cargar();
+      // Se quitan las filas de la tabla en vez de recargarla: asi no se
+      // pierde el scroll ni el orden elegido.
+      const fila = boton.closest('tr');
+      if (data.borrados > 1) {
+        document.querySelectorAll('#tabla-movimientos tr').forEach(function (otra) {
+          if (otra.dataset.descripcion === (r.descripcion || '')) otra.remove();
+        });
+      } else if (fila) {
+        fila.remove();
+      }
+      cargarResumen();
     } catch (e) {
       avisar('No se pudo borrar: ' + e.message, true);
       boton.disabled = false;
@@ -273,6 +328,7 @@
     if (!append) tbody.innerHTML = '';
     data.rows.forEach(function (r) {
       const tr = document.createElement('tr');
+      tr.dataset.descripcion = r.descripcion || '';
       [r.fecha, r.descripcion || '-'].forEach(function (value) {
         const td = document.createElement('td');
         td.textContent = value;
@@ -309,7 +365,8 @@
   async function cargarMovimientos(append) {
     const qs = queryString();
     const params = qs ? qs + '&' : '';
-    const res = await fetch('/api/transacciones?' + params + 'limit=' + PAGINA + '&offset=' + (append ? offset : 0));
+    const res = await fetch('/api/transacciones?' + params + 'limit=' + PAGINA +
+      '&offset=' + (append ? offset : 0) + '&orden=' + orden.campo + '&dir=' + orden.dir);
     if (!res.ok) return;
     pintarMovimientos(await res.json(), append);
   }
@@ -379,6 +436,24 @@
     });
   }
 
+  /* Refresca KPIs y graficos SIN tocar la tabla de movimientos. Es lo que
+     se llama al corregir una categoria: si se recargara la tabla entera,
+     volverias al principio de la lista cada vez que arreglas una fila. */
+  async function cargarResumen() {
+    const qs = queryString();
+    const res = await fetch('/api/resumen' + (qs ? '?' + qs : ''));
+    if (!res.ok) return;
+    const data = await res.json();
+    ultimoResumen = data;
+    Viz.setCurrency(data.currency);
+    pintarAvisos(data);
+    pintarMonedas(data);
+    if (data.kpis.transactions === 0) return;
+    pintarKpis(data.kpis, data.by_month.length, data);
+    pintarGraficos(data);
+    pintarTop(data.top_transactions);
+  }
+
   async function cargar() {
     const qs = queryString();
     document.getElementById('exportar').href = '/api/exportar.csv' + (qs ? '?' + qs : '');
@@ -425,12 +500,74 @@
       campo.value = '';
       campo.dispatchEvent(new Event('change', { bubbles: true }));
     });
+    const mes = document.getElementById('mes');
+    if (mes) {
+      limpiando = true;
+      mes.value = '';
+      mes.dispatchEvent(new Event('change', { bubbles: true }));
+      limpiando = false;
+    }
     cargar();
   });
 
   document.getElementById('cargar-mas').addEventListener('click', function () {
     cargarMovimientos(true);
   });
+
+  /* Ordenar por cualquier columna, como en una planilla: un click ordena,
+     otro invierte. La flecha dice por cual y hacia donde. */
+  function pintarOrden() {
+    document.querySelectorAll('.orden').forEach(function (boton) {
+      const activo = boton.dataset.orden === orden.campo;
+      boton.classList.toggle('activo', activo);
+      boton.dataset.dir = activo ? orden.dir : '';
+    });
+  }
+
+  document.querySelectorAll('.orden').forEach(function (boton) {
+    boton.addEventListener('click', function () {
+      const campo = boton.dataset.orden;
+      if (orden.campo === campo) {
+        orden.dir = orden.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        orden.campo = campo;
+        // Un texto se lee mejor de la A a la Z; una fecha o un importe,
+        // de mayor a menor.
+        orden.dir = ['descripcion', 'categoria', 'persona', 'archivo', 'moneda'].indexOf(campo) >= 0
+          ? 'asc' : 'desc';
+      }
+      pintarOrden();
+      offset = 0;
+      cargarMovimientos(false);
+    });
+  });
+  pintarOrden();
+
+  /* Elegir un mes llena el rango de fechas: es el mismo filtro, mas comodo. */
+  let limpiando = false;
+  const selectorMes = document.getElementById('mes');
+  if (selectorMes) {
+    selectorMes.addEventListener('change', function () {
+      if (limpiando) return;  // "Limpiar" ya recarga por su cuenta
+      const desde = document.getElementById('desde');
+      const hasta = document.getElementById('hasta');
+      if (selectorMes.value) {
+        const partes = selectorMes.value.split('-');
+        const anio = Number(partes[0]);
+        const mes = Number(partes[1]);
+        const ultimo = new Date(anio, mes, 0).getDate();
+        desde.value = selectorMes.value + '-01';
+        hasta.value = selectorMes.value + '-' + String(ultimo).padStart(2, '0');
+      } else {
+        desde.value = '';
+        hasta.value = '';
+      }
+      [desde, hasta].forEach(function (campo) {
+        campo.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      cargar();
+    });
+  }
 
   /* El modo oscuro tiene sus propios pasos de color: hay que repintar. */
   document.addEventListener('tema-cambiado', function () {

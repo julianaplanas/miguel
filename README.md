@@ -382,6 +382,28 @@ volumen montado, cuántos archivos hay y si se puede escribir. Si los datos qued
 fuera del volumen, la app lo dice ahí y también en la pantalla de Archivos, en vez
 de dejarte descubrirlo cuando desaparecen.
 
+## El dashboard
+
+Los gráficos van en **un mes o en todos**: el selector de mes llena el rango de
+fechas, que es el mismo filtro de siempre pero sin escribir dos fechas.
+
+- **Gasto por categoría** lista *todas* las categorías, incluidas las que creaste
+  vos: cada barra lleva su etiqueta al lado, así que no hay razón para esconder
+  ninguna en un "Otros". El alto del gráfico crece con la cantidad.
+- **Categorías mes a mes** apila las categorías por mes, para ver en qué se fue
+  cada mes y comparar un mes con otro de un vistazo.
+- Cada categoría tiene **su color**, el mismo en todos los gráficos. El color lo
+  decide la categoría (no su puesto en el ranking), así que filtrar no repinta
+  nada; si dos categorías del mismo gráfico caen en el mismo color, la segunda
+  pasa al siguiente libre. Los ocho colores salen de la paleta validada de la
+  guía de visualización, en sus versiones de claro y oscuro.
+- La tabla de movimientos **se ordena por cualquier columna**, como una planilla.
+  El orden lo hace el servidor porque la tabla viene paginada: ordenar solo lo
+  cargado daría un orden falso.
+- Corregir una categoría (o borrar una fila) **no recarga la lista**: se
+  actualiza donde está y solo se refrescan los totales y los gráficos. Antes
+  volvías al principio cada vez que arreglabas algo.
+
 ## Interfaz
 
 La barra superior deja arriba solo lo que se usa a diario —Dashboard, Archivos,

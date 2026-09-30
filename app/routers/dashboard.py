@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import io
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
@@ -85,6 +86,25 @@ def api_options(db: Session = Depends(get_db), _: str = Depends(require_user)):
     return available_options(db)
 
 
+# Por que campo se puede ordenar la tabla de movimientos. El orden se hace
+# en el servidor y no en el navegador porque la tabla viene paginada:
+# ordenar solo lo que ya esta cargado daria un orden falso.
+ORDENES = {
+    "fecha": lambda r: (r["date"] is not None, r["date"] or dt.date.min),
+    "descripcion": lambda r: (r["description"] or "").lower(),
+    "categoria": lambda r: (r["category"] or "").lower(),
+    "persona": lambda r: (r["person"] or "").lower(),
+    "archivo": lambda r: (r["filename"] or "").lower(),
+    "importe": lambda r: r["amount"],
+    "moneda": lambda r: (r["currency"] or ""),
+}
+
+
+def _ordenar(rows: list[dict], orden: str, direccion: str) -> None:
+    clave = ORDENES.get(orden, ORDENES["fecha"])
+    rows.sort(key=clave, reverse=direccion != "asc")
+
+
 @router.get("/api/transacciones")
 def api_transactions(
     db: Session = Depends(get_db),
@@ -93,18 +113,18 @@ def api_transactions(
     limit: int = Query(200, ge=1, le=2000),
     offset: int = Query(0, ge=0),
     orden: str = Query("fecha"),
+    dir: str = Query("desc"),
 ):
     rows = fetch_rows(db, filters)
-    if orden == "importe":
-        rows.sort(key=lambda r: r["amount"], reverse=True)
-    else:
-        rows.sort(key=lambda r: (r["date"] is not None, r["date"]), reverse=True)
+    _ordenar(rows, orden, dir)
     total = len(rows)
     page = rows[offset : offset + limit]
     return {
         "total": total,
         "offset": offset,
         "limit": limit,
+        "orden": orden if orden in ORDENES else "fecha",
+        "dir": "asc" if dir == "asc" else "desc",
         "rows": [
             {
                 "id": r["id"],
@@ -130,7 +150,7 @@ def export_csv(
     filters: Filters = Depends(_filters),
 ):
     rows = fetch_rows(db, filters)
-    rows.sort(key=lambda r: (r["date"] is not None, r["date"]), reverse=True)
+    _ordenar(rows, "fecha", "desc")
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";")
     writer.writerow(["fecha", "descripcion", "categoria", "persona", "cuenta", "importe", "moneda", "archivo"])
