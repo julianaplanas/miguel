@@ -185,6 +185,154 @@
   }
 
   /* ------------------------------------------------------------------ *
+   * Formulario en dialogo                                               *
+   *                                                                     *
+   * Mismo dialogo que `confirmar`, con campos. Resuelve un objeto con    *
+   * los valores, o null si se cancela.                                  *
+   * ------------------------------------------------------------------ */
+  function formulario(opciones) {
+    const cfg = Object.assign(
+      { titulo: 'Editar', mensaje: '', aceptar: 'Guardar', cancelar: 'Cancelar', campos: [] },
+      opciones || {}
+    );
+    return new Promise((resolver) => {
+      const previo = document.activeElement;
+      const fondo = document.createElement('div');
+      fondo.className = 'ui-modal-fondo';
+
+      const caja = document.createElement('form');
+      caja.className = 'ui-modal ui-modal-form';
+      caja.setAttribute('role', 'dialog');
+      caja.setAttribute('aria-modal', 'true');
+      const idTitulo = nuevoId('ui-modal-titulo');
+      caja.setAttribute('aria-labelledby', idTitulo);
+
+      const titulo = document.createElement('h2');
+      titulo.id = idTitulo;
+      titulo.className = 'ui-modal-titulo';
+      titulo.textContent = cfg.titulo;
+      caja.appendChild(titulo);
+
+      if (cfg.mensaje) {
+        const texto = document.createElement('p');
+        texto.className = 'ui-modal-texto';
+        texto.textContent = cfg.mensaje;
+        caja.appendChild(texto);
+      }
+
+      const grilla = document.createElement('div');
+      grilla.className = 'ui-form-grid';
+      const controles = {};
+      cfg.campos.forEach((campo) => {
+        const envoltura = document.createElement('div');
+        envoltura.className = 'field' + (campo.ancho === 'completo' ? ' completo' : '');
+        const etiqueta = document.createElement('label');
+        const id = nuevoId('ui-campo');
+        etiqueta.htmlFor = id;
+        etiqueta.textContent = campo.etiqueta;
+        envoltura.appendChild(etiqueta);
+
+        let control;
+        if (campo.opciones) {
+          control = document.createElement('select');
+          campo.opciones.forEach((opcion) => {
+            const o = document.createElement('option');
+            o.value = opcion.valor !== undefined ? opcion.valor : opcion;
+            o.textContent = opcion.texto !== undefined ? opcion.texto : opcion;
+            o.selected = String(o.value) === String(campo.valor);
+            control.appendChild(o);
+          });
+        } else {
+          control = document.createElement('input');
+          control.type = campo.tipo || 'text';
+          control.value = campo.valor === undefined || campo.valor === null ? '' : campo.valor;
+          if (campo.inputmode) control.inputMode = campo.inputmode;
+          if (campo.placeholder) control.placeholder = campo.placeholder;
+        }
+        control.id = id;
+        control.name = campo.nombre;
+        envoltura.appendChild(control);
+        if (campo.ayuda) {
+          const ayuda = document.createElement('span');
+          ayuda.className = 'ui-form-ayuda';
+          ayuda.textContent = campo.ayuda;
+          envoltura.appendChild(ayuda);
+        }
+        grilla.appendChild(envoltura);
+        controles[campo.nombre] = control;
+      });
+      caja.appendChild(grilla);
+
+      const error = document.createElement('p');
+      error.className = 'ui-form-error';
+      error.hidden = true;
+      caja.appendChild(error);
+
+      const acciones = document.createElement('div');
+      acciones.className = 'ui-modal-acciones';
+      const btnCancelar = document.createElement('button');
+      btnCancelar.type = 'button';
+      btnCancelar.className = 'btn';
+      btnCancelar.textContent = cfg.cancelar;
+      const btnAceptar = document.createElement('button');
+      btnAceptar.type = 'submit';
+      btnAceptar.className = 'btn btn-primary';
+      btnAceptar.textContent = cfg.aceptar;
+      acciones.appendChild(btnCancelar);
+      acciones.appendChild(btnAceptar);
+      caja.appendChild(acciones);
+
+      fondo.appendChild(caja);
+      document.body.appendChild(fondo);
+      document.body.classList.add('ui-sin-scroll');
+      requestAnimationFrame(() => fondo.classList.add('visible'));
+      mejorar(grilla);
+      const primero = grilla.querySelector('input:not(.ui-nativo-oculto), .ui-select-boton');
+      if (primero) primero.focus();
+
+      function cerrar(respuesta) {
+        document.removeEventListener('keydown', alTeclado, true);
+        fondo.classList.remove('visible');
+        const quitar = () => {
+          fondo.remove();
+          document.body.classList.remove('ui-sin-scroll');
+          if (previo && previo.focus) previo.focus();
+          resolver(respuesta);
+        };
+        if (ANIMAR) setTimeout(quitar, 150); else quitar();
+      }
+
+      function alTeclado(evento) {
+        if (evento.key === 'Escape') { evento.preventDefault(); cerrar(null); }
+      }
+      document.addEventListener('keydown', alTeclado, true);
+      fondo.addEventListener('mousedown', (e) => { if (e.target === fondo) cerrar(null); });
+      btnCancelar.addEventListener('click', () => cerrar(null));
+
+      caja.addEventListener('submit', async (evento) => {
+        evento.preventDefault();
+        const valores = {};
+        Object.keys(controles).forEach((nombre) => { valores[nombre] = controles[nombre].value; });
+        if (cfg.alGuardar) {
+          btnAceptar.disabled = true;
+          error.hidden = true;
+          try {
+            await cfg.alGuardar(valores);
+          } catch (e) {
+            // El dialogo se queda abierto con lo escrito: corregir es mas
+            // facil que volver a tipear todo.
+            error.textContent = e.message || String(e);
+            error.hidden = false;
+            btnAceptar.disabled = false;
+            return;
+          }
+        }
+        cerrar(valores);
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------------ *
    * Panel flotante compartido (selects y calendario)                    *
    *                                                                     *
    * Se cuelga del <body> con position fixed en vez de dentro del        *
@@ -801,5 +949,5 @@
     iniciar();
   }
 
-  window.UI = { toast, confirmar, mejorar, aIso, aTexto };
+  window.UI = { toast, confirmar, formulario, mejorar, aIso, aTexto };
 })();

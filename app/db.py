@@ -42,6 +42,7 @@ _ADDED_COLUMNS: dict[str, dict[str, tuple[str, str]]] = {
     # quedaron sin categorizar se marcan vacias para que el recategorizado
     # si pueda tocarlas.
     "transactions": {
+        "edited": ("BOOLEAN", "0"),
         "category_source": (
             "VARCHAR(16)",
             "CASE WHEN category IS NULL OR category = 'Sin categoria' THEN '' ELSE 'file' END",

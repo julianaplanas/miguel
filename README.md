@@ -400,6 +400,11 @@ fechas, que es el mismo filtro de siempre pero sin escribir dos fechas.
 - La tabla de movimientos **se ordena por cualquier columna**, como una planilla.
   El orden lo hace el servidor porque la tabla viene paginada: ordenar solo lo
   cargado daría un orden falso.
+- Cualquier movimiento **se corrige a mano** desde el lápiz de su fila: fecha,
+  importe, moneda, persona y descripción. Es para lo que ningún lector resuelve
+  —una retención en pesos que vino en la columna de dólares, por ejemplo—. Lo
+  corregido queda marcado con un ✎, y si reimportás ese archivo la pantalla de
+  revisión te avisa cuántas correcciones vas a perder.
 - Corregir una categoría (o borrar una fila) **no recarga la lista**: se
   actualiza donde está y solo se refrescan los totales y los gráficos. Antes
   volvías al principio cada vez que arreglabas algo.

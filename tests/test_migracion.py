@@ -68,7 +68,8 @@ def test_categoria_del_archivo_se_protege_y_la_vacia_no(tmp_path):
     _transacciones_anteriores(path)
     engine = create_engine(f"sqlite:///{path}")
 
-    assert _ensure_columns(engine) == ["transactions.category_source"]
+    creadas = _ensure_columns(engine)
+    assert "transactions.category_source" in creadas
 
     with engine.connect() as conn:
         filas = dict(

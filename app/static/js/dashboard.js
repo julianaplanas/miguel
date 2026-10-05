@@ -11,6 +11,7 @@
   // Orden de la tabla de movimientos. Va al servidor porque la tabla esta
   // paginada: ordenar solo lo cargado daria un orden falso.
   let orden = { campo: 'fecha', dir: 'desc' };
+  let opcionesActuales = {};
 
   function queryString() {
     const params = new URLSearchParams();
@@ -273,17 +274,78 @@
      una linea de totales, tiene que poder sacarse sin borrar el archivo
      entero. Como esas lineas suelen repetirse en todos los resumenes, el
      dialogo ofrece borrar de una todos los que digan lo mismo. */
-  function celdaBorrar(r) {
+  function celdaAcciones(r) {
     const td = document.createElement('td');
-    const boton = document.createElement('button');
-    boton.type = 'button';
-    boton.className = 'fila-borrar';
-    boton.textContent = '\u00d7';
-    boton.title = 'Borrar este movimiento';
-    boton.setAttribute('aria-label', 'Borrar ' + (r.descripcion || 'movimiento'));
-    boton.addEventListener('click', function () { borrarMovimiento(r, boton); });
-    td.appendChild(boton);
+    td.className = 'acciones-fila';
+
+    const editar = document.createElement('button');
+    editar.type = 'button';
+    editar.className = 'fila-borrar';
+    editar.textContent = '\u270e';
+    editar.title = 'Corregir este movimiento';
+    editar.setAttribute('aria-label', 'Corregir ' + (r.descripcion || 'movimiento'));
+    editar.addEventListener('click', function () { editarMovimiento(r); });
+    td.appendChild(editar);
+
+    const borrar = document.createElement('button');
+    borrar.type = 'button';
+    borrar.className = 'fila-borrar';
+    borrar.textContent = '\u00d7';
+    borrar.title = 'Borrar este movimiento';
+    borrar.setAttribute('aria-label', 'Borrar ' + (r.descripcion || 'movimiento'));
+    borrar.addEventListener('click', function () { borrarMovimiento(r, borrar); });
+    td.appendChild(borrar);
     return td;
+  }
+
+  /* Corregir un movimiento entero.
+
+     El caso que lo pide: un importe en pesos que el lector tomo como
+     dolares. Eso no se arregla con la categoria ni borrando la fila. */
+  async function editarMovimiento(r) {
+    const monedas = (opcionesActuales.currencies || []).slice();
+    if (monedas.indexOf(r.moneda) === -1 && r.moneda) monedas.push(r.moneda);
+    ['ARS', 'USD', 'EUR'].forEach(function (c) {
+      if (monedas.indexOf(c) === -1) monedas.push(c);
+    });
+
+    await UI.formulario({
+      titulo: 'Corregir movimiento',
+      mensaje: 'Lo que cambies queda marcado como corregido a mano.',
+      aceptar: 'Guardar',
+      campos: [
+        { nombre: 'fecha', etiqueta: 'Fecha', tipo: 'date', valor: r.fecha },
+        { nombre: 'moneda', etiqueta: 'Moneda', valor: r.moneda, opciones: monedas },
+        {
+          nombre: 'importe', etiqueta: 'Importe', valor: r.importe,
+          inputmode: 'decimal',
+          ayuda: 'Positivo = gasto, negativo = ingreso'
+        },
+        { nombre: 'persona', etiqueta: 'Persona', valor: r.persona },
+        {
+          nombre: 'descripcion', etiqueta: 'Descripcion', valor: r.descripcion,
+          ancho: 'completo'
+        }
+      ],
+      alGuardar: async function (valores) {
+        const res = await fetch('/api/transacciones/' + r.id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(valores)
+        });
+        if (!res.ok) {
+          const detalle = await res.json().catch(function () { return {}; });
+          throw new Error(detalle.detail || ('Error ' + res.status));
+        }
+        const data = await res.json();
+        // La fila se repinta donde esta: ni se recarga la lista ni se
+        // pierde el orden o el scroll.
+        const fila = document.querySelector('#tabla-movimientos tr[data-id="' + r.id + '"]');
+        if (fila && data.fila) fila.replaceWith(filaMovimiento(data.fila));
+        avisar('Movimiento corregido.');
+        cargarResumen();
+      }
+    });
   }
 
   async function borrarMovimiento(r, boton) {
@@ -323,37 +385,60 @@
     }
   }
 
+  /* Una fila de la tabla. Se arma aparte para poder repintarla sola
+     cuando se corrige, sin recargar la lista entera. */
+  function filaMovimiento(r) {
+    const tr = document.createElement('tr');
+    tr.dataset.descripcion = r.descripcion || '';
+    tr.dataset.id = r.id;
+
+    const fecha = document.createElement('td');
+    fecha.textContent = r.fecha || '—';
+    tr.appendChild(fecha);
+
+    const desc = document.createElement('td');
+    desc.textContent = r.descripcion || '-';
+    if (r.editado) {
+      const marca = document.createElement('span');
+      marca.className = 'fila-editada';
+      marca.textContent = '✎';
+      marca.title = 'Corregido a mano';
+      desc.appendChild(marca);
+    }
+    tr.appendChild(desc);
+
+    tr.appendChild(celdaCategoria(r));
+
+    const persona = document.createElement('td');
+    persona.textContent = r.persona;
+    tr.appendChild(persona);
+
+    // El nombre del archivo se repite en todas las filas y es largo: se
+    // recorta y queda completo en el title.
+    const archivo = document.createElement('td');
+    archivo.className = 'col-archivo';
+    archivo.textContent = r.archivo;
+    archivo.title = r.archivo;
+    tr.appendChild(archivo);
+
+    const importe = document.createElement('td');
+    importe.className = 'num';
+    importe.textContent = Viz.money(r.importe, r.moneda);
+    tr.appendChild(importe);
+
+    const moneda = document.createElement('td');
+    moneda.textContent = r.moneda || '';
+    tr.appendChild(moneda);
+
+    tr.appendChild(celdaAcciones(r));
+    return tr;
+  }
+
   function pintarMovimientos(data, append) {
     const tbody = document.getElementById('tabla-movimientos');
     if (!append) tbody.innerHTML = '';
     data.rows.forEach(function (r) {
-      const tr = document.createElement('tr');
-      tr.dataset.descripcion = r.descripcion || '';
-      [r.fecha, r.descripcion || '-'].forEach(function (value) {
-        const td = document.createElement('td');
-        td.textContent = value;
-        tr.appendChild(td);
-      });
-      tr.appendChild(celdaCategoria(r));
-      const persona = document.createElement('td');
-      persona.textContent = r.persona;
-      tr.appendChild(persona);
-      // El nombre del archivo se repite en todas las filas y es largo: se
-      // recorta y queda completo en el title.
-      const archivo = document.createElement('td');
-      archivo.className = 'col-archivo';
-      archivo.textContent = r.archivo;
-      archivo.title = r.archivo;
-      tr.appendChild(archivo);
-      const importe = document.createElement('td');
-      importe.className = 'num';
-      importe.textContent = Viz.money(r.importe, r.moneda);
-      tr.appendChild(importe);
-      const moneda = document.createElement('td');
-      moneda.textContent = r.moneda || '';
-      tr.appendChild(moneda);
-      tr.appendChild(celdaBorrar(r));
-      tbody.appendChild(tr);
+      tbody.appendChild(filaMovimiento(r));
     });
     const mostrados = Math.min(data.offset + data.rows.length, data.total);
     document.getElementById('movimientos-total').textContent = mostrados + ' de ' + data.total;
@@ -445,6 +530,7 @@
     if (!res.ok) return;
     const data = await res.json();
     ultimoResumen = data;
+    opcionesActuales = data.options || opcionesActuales;
     Viz.setCurrency(data.currency);
     pintarAvisos(data);
     pintarMonedas(data);
@@ -464,6 +550,7 @@
     }
     const data = await res.json();
     ultimoResumen = data;
+    opcionesActuales = data.options || opcionesActuales;
     Viz.setCurrency(data.currency);
     pintarAvisos(data);
     pintarMonedas(data);

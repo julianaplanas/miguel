@@ -71,6 +71,9 @@ class Transaction(Base):
     # De donde salio la categoria: file / rule / ai / manual. Lo que el
     # usuario corrigio a mano no se vuelve a pisar al recategorizar.
     category_source: Mapped[str] = mapped_column(String(16), default="")
+    # Corregido a mano desde la tabla (fecha, importe, moneda...). Se marca
+    # para poder avisar antes de reimportar, que lo pisaria.
+    edited: Mapped[bool] = mapped_column(Boolean, default=False)
     person: Mapped[str] = mapped_column(String(160), default="Sin asignar", index=True)
     account: Mapped[str] = mapped_column(String(160), default="")
     raw: Mapped[str] = mapped_column(Text, default="{}")

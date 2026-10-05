@@ -10,7 +10,15 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.analytics import Filters, available_options, build_summary, fetch_rows, parse_date
+from app import currency as cur
+from app.analytics import (
+    Filters,
+    available_options,
+    build_summary,
+    fetch_rows,
+    parse_date,
+)
+from app.ingest import parse_amount
 from app.categorize import SOURCE_MANUAL, SUGGESTED, UNCATEGORIZED, normalize
 from app.db import get_db
 from app.deps import require_user, templates
@@ -137,6 +145,7 @@ def api_transactions(
                 "moneda": r["currency"],
                 "archivo": r["filename"],
                 "categoria_origen": r["category_source"],
+                "editado": bool(r.get("edited")),
             }
             for r in page
         ],
@@ -175,6 +184,73 @@ def export_csv(
     )
 
 
+def _campos_editados(payload: dict, tx: Transaction) -> dict:
+    """Valida los campos que llegan y devuelve solo los que cambian.
+
+    Lo que no venga en el payload no se toca: asi el editor puede mandar un
+    solo campo sin arrastrar el resto.
+    """
+    cambios: dict = {}
+
+    if "categoria" in payload:
+        categoria = (payload.get("categoria") or "").strip()[:160]
+        if categoria:
+            cambios["category"] = categoria
+
+    if "descripcion" in payload:
+        cambios["description"] = (payload.get("descripcion") or "").strip()[:512]
+
+    if "persona" in payload:
+        cambios["person"] = (payload.get("persona") or "").strip()[:160] or "Sin asignar"
+
+    if "cuenta" in payload:
+        cambios["account"] = (payload.get("cuenta") or "").strip()[:160]
+
+    if "fecha" in payload:
+        texto = (payload.get("fecha") or "").strip()
+        if not texto:
+            cambios["date"] = None
+        else:
+            fecha = parse_date(texto)
+            if fecha is None:
+                raise HTTPException(status_code=400, detail="Fecha no valida (usa aaaa-mm-dd)")
+            cambios["date"] = fecha
+
+    if "moneda" in payload:
+        codigo = cur.normalize_code(payload.get("moneda"), "")
+        if not codigo:
+            raise HTTPException(status_code=400, detail="Moneda no reconocida")
+        cambios["currency"] = codigo
+
+    if "importe" in payload:
+        importe = parse_amount(payload.get("importe"))
+        if importe is None:
+            raise HTTPException(status_code=400, detail="Importe no valido")
+        cambios["amount"] = round(float(importe), 2)
+
+    # Solo lo que de verdad cambia, para no marcar como editado lo que se
+    # guardo igual que estaba.
+    return {campo: valor for campo, valor in cambios.items() if getattr(tx, campo) != valor}
+
+
+def _fila_api(db: Session, tx: Transaction) -> dict:
+    """El movimiento con la misma forma que devuelve /api/transacciones."""
+    archivo = db.get(UploadedFile, tx.file_id) if tx.file_id else None
+    return {
+        "id": tx.id,
+        "fecha": tx.date.isoformat() if tx.date else "",
+        "descripcion": tx.description or "",
+        "categoria": tx.category or "",
+        "persona": tx.person or "",
+        "cuenta": tx.account or "",
+        "importe": round(float(tx.amount or 0.0), 2),
+        "moneda": (tx.currency or "").upper(),
+        "archivo": archivo.filename if archivo else "",
+        "categoria_origen": tx.category_source or "",
+        "editado": bool(tx.edited),
+    }
+
+
 @router.patch("/api/transacciones/{tx_id}")
 def update_transaction(
     tx_id: int,
@@ -182,16 +258,21 @@ def update_transaction(
     _: str = Depends(require_user),
     payload: dict = Body(...),
 ):
-    """Cambia la categoria de un movimiento, opcionalmente creando una regla."""
+    """Corrige un movimiento: categoria, fecha, importe, moneda, persona...
+
+    Ningun lector acierta siempre y el archivo original tampoco: una
+    retencion en pesos puede venir en la columna de dolares. Lo que se
+    corrige aca queda marcado como corregido a mano.
+    """
     tx = db.get(Transaction, tx_id)
     if not tx:
         raise HTTPException(status_code=404, detail="Movimiento no encontrado")
 
-    categoria = (payload.get("categoria") or "").strip()
-    if not categoria:
+    campos = _campos_editados(payload, tx)
+    categoria = campos.pop("category", None)
+    if categoria is None and "categoria" in payload:
         raise HTTPException(status_code=400, detail="La categoria no puede estar vacia")
 
-    categoria = categoria[:160]
     aplicados = 0
     regla = None
 
@@ -206,8 +287,13 @@ def update_transaction(
             aplicados = apply_rule(db, patron, categoria)
             regla = patron
 
-    tx.category = categoria
-    tx.category_source = SOURCE_MANUAL
+    if categoria is not None:
+        tx.category = categoria
+        tx.category_source = SOURCE_MANUAL
+    for campo, valor in campos.items():
+        setattr(tx, campo, valor)
+    if campos:
+        tx.edited = True
     db.commit()
 
     return {
@@ -215,6 +301,7 @@ def update_transaction(
         "categoria": tx.category,
         "regla": regla,
         "aplicados": aplicados,
+        "fila": _fila_api(db, tx),
     }
 
 

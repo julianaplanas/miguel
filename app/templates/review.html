@@ -16,6 +16,10 @@
 <div class="flash err">
   Este archivo <strong>ya esta importado</strong>. Si importas de nuevo, sus movimientos se
   reemplazan por los de esta lectura.
+  {% if corregidas %}
+  Hay <strong>{{ corregidas }} movimiento{{ '' if corregidas == 1 else 's' }} corregido{{ '' if corregidas == 1 else 's' }} a mano</strong>
+  (fecha, importe o moneda): esas correcciones se pierden.
+  {% endif %}
 </div>
 {% endif %}
 

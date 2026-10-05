@@ -566,6 +566,25 @@ details.mapping summary { cursor: pointer; font-size: 13px; color: var(--text-se
 .ui-modal-titulo { font-size: 17px; margin: 0 0 8px; letter-spacing: -0.01em; }
 .ui-modal-texto { margin: 0 0 18px; color: var(--text-secondary); font-size: 14px; }
 .ui-modal-acciones { display: flex; justify-content: flex-end; gap: 8px; }
+.ui-modal-form { max-width: 520px; }
+.ui-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 4px 0 18px;
+}
+.ui-form-grid .field.completo { grid-column: 1 / -1; }
+.ui-form-ayuda { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.ui-form-error {
+  margin: 0 0 14px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--critical) 10%, transparent);
+  color: var(--critical);
+  font-size: 13px;
+}
+@media (max-width: 560px) { .ui-form-grid { grid-template-columns: 1fr; } }
+
 .ui-modal-opcion {
   display: flex;
   align-items: center;
@@ -589,6 +608,15 @@ details.mapping summary { cursor: pointer; font-size: 13px; color: var(--text-se
   border: 0;
 }
 
+/* Marca de fila corregida a mano. */
+.fila-editada {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: help;
+}
+
 /* Borrar una fila de la tabla de movimientos. Se mantiene discreto hasta
    que el puntero esta en la fila: no es una accion que se busque seguido. */
 .fila-borrar {
@@ -603,6 +631,8 @@ details.mapping summary { cursor: pointer; font-size: 13px; color: var(--text-se
   opacity: 0;
 }
 tr:hover .fila-borrar, .fila-borrar:focus-visible { opacity: 1; }
+.acciones-fila { white-space: nowrap; }
+.acciones-fila .fila-borrar + .fila-borrar { margin-left: 2px; }
 .fila-borrar:hover { background: var(--critical-soft, rgba(220,38,38,.12)); color: var(--critical); }
 .btn-peligro-solido {
   background: var(--critical);

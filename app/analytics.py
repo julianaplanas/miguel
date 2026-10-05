@@ -143,6 +143,7 @@ def fetch_rows(db: Session, filters: Filters) -> list[dict[str, Any]]:
             Transaction.currency,
             Transaction.category,
             Transaction.category_source,
+            Transaction.edited,
             Transaction.person,
             Transaction.description,
             Transaction.account,
@@ -176,6 +177,7 @@ def fetch_rows(db: Session, filters: Filters) -> list[dict[str, Any]]:
                 "currency": code,
                 "category": r.category or "Sin categoria",
                 "category_source": r.category_source or "",
+                "edited": bool(r.edited),
                 "person": r.person or "Sin asignar",
                 "description": r.description or "",
                 "account": r.account or "",
@@ -225,7 +227,9 @@ def build_summary(db: Session, filters: Filters, top_n: int = 8) -> dict[str, An
         conteo: dict[str, int] = defaultdict(int)
         for r in rows:
             conteo[r["currency"]] += 1
-        seleccionada = max(conteo, key=lambda c: conteo[c])
+        # En empate gana la moneda base: es la que el usuario eligio como
+        # suya, y ver el total en otra sin haberlo pedido desconcierta.
+        seleccionada = max(conteo, key=lambda c: (conteo[c], c == base))
         rows = [r for r in rows if r["currency"] == seleccionada]
         convertido = False
 

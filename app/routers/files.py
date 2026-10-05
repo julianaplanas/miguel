@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app import currency as cur
@@ -659,6 +659,14 @@ def _preview_context(db: Session, record: UploadedFile, parsed, excluidas: set[i
             parsed, (parsed.mapping.get("default_currency") or base_currency(db)).upper()
         ),
         "duplicadas": sum(1 for f in filas if f["duplicada"]),
+        # Reimportar reemplaza los movimientos del archivo: si alguno fue
+        # corregido a mano, esa correccion se pierde y hay que avisarlo.
+        "corregidas": db.execute(
+            select(func.count(Transaction.id))
+            .where(Transaction.file_id == record.id)
+            .where(Transaction.edited.is_(True))
+        ).scalar()
+        or 0,
         "mapping": parsed.mapping,
         "columns": parsed.columns,
         "fields": FIELDS,
