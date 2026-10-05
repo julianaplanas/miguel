@@ -12,6 +12,16 @@
 {% if message %}<div class="flash ok" data-toast>{{ message }}</div>{% endif %}
 {% if error %}<div class="flash err" data-toast>{{ error }}</div>{% endif %}
 
+{% if gemelo %}
+<div class="flash err">
+  <strong>Este archivo ya lo subiste.</strong> Tiene exactamente el mismo contenido que
+  <strong>{{ gemelo.filename }}</strong>, importado el
+  {{ gemelo.uploaded_at.strftime('%d/%m/%Y a las %H:%M') }}
+  ({{ gemelo.row_count }} movimientos). Si lo importas igual, cada movimiento queda dos veces
+  y los totales van a estar al doble. Lo normal aca es <strong>descartarlo</strong>.
+</div>
+{% endif %}
+
 {% if file.imported %}
 <div class="flash err">
   Este archivo <strong>ya esta importado</strong>. Si importas de nuevo, sus movimientos se
@@ -255,9 +265,10 @@
     </div>
     {% if duplicadas %}
     <div class="flash err" style="margin:0 0 12px">
-      <strong>{{ duplicadas }} fila{{ '' if duplicadas == 1 else 's' }}</strong>
-      coincide{{ 'n' if duplicadas > 1 }} con movimientos que ya estan importados (misma fecha,
-      importe y descripcion). Si este archivo se superpone con otro que ya subiste, desmarcalas.
+      <strong>{{ duplicadas }} de {{ rows | length }} fila{{ '' if rows | length == 1 else 's' }}</strong>
+      ya est{{ 'a' if duplicadas == 1 else 'an' }} importada{{ '' if duplicadas == 1 else 's' }}
+      (misma fecha, importe y descripcion). Pasa cuando dos resumenes se superponen, o cuando el
+      mismo archivo se sube dos veces. <strong>Desmarcalas</strong> para no duplicarlas.
     </div>
     {% endif %}
     <div class="table-wrap">

@@ -36,6 +36,7 @@ _ADDED_COLUMNS: dict[str, dict[str, tuple[str, str]]] = {
     "uploaded_files": {
         "imported": ("BOOLEAN", "1"),
         "reader": ("VARCHAR(16)", "''"),
+        "content_hash": ("VARCHAR(64)", "''"),
         "ai_rows": ("TEXT", "''"),
     },
     # Una categoria que venia del archivo se respeta ('file'); las que

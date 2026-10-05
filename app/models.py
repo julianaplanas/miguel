@@ -32,6 +32,10 @@ class UploadedFile(Base):
     filename: Mapped[str] = mapped_column(String(255))
     stored_path: Mapped[str] = mapped_column(String(512))
     content_type: Mapped[str] = mapped_column(String(128), default="")
+    # SHA-256 del contenido: dos archivos con el mismo hash son el mismo
+    # archivo, se llamen como se llamen. Es lo que evita importarlo dos
+    # veces y duplicar todos sus movimientos.
+    content_hash: Mapped[str] = mapped_column(String(64), default="", index=True)
     size_bytes: Mapped[int] = mapped_column(Integer, default=0)
     uploaded_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=_now)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)

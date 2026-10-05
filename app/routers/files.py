@@ -1,6 +1,7 @@
 """Gestion de archivos: subida, activacion/desactivacion, remapeo y borrado."""
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from pathlib import Path
@@ -212,6 +213,8 @@ async def upload(
     fallos: list[str] = []
     leidos_por_modelo: list[str] = []
     avisos_modelo: list[str] = []
+    repetido_de: list[tuple[str, str]] = []
+    con_repetidas: list[tuple[str, int]] = []
     modo_pdf = pdf_reader_mode(db)
 
     for archivo in files:
@@ -228,6 +231,7 @@ async def upload(
             stored_path = settings.upload_dir / f"{uuid.uuid4().hex}{suffix}"
             stored_path.write_bytes(content)
 
+            huella = _hash_contenido(content)
             record = UploadedFile(
                 filename=nombre,
                 stored_path=str(stored_path),
@@ -235,6 +239,7 @@ async def upload(
                 size_bytes=len(content),
                 is_active=True,
                 default_person=persona,
+                content_hash=huella,
             )
             db.add(record)
             db.flush()
@@ -280,7 +285,19 @@ async def upload(
                     else:
                         avisos_modelo.append(f"{nombre}: {fallo}")
 
-            if con_revision:
+            # Importar a ciegas algo que ya esta importado duplica todo y
+            # no se nota hasta que los totales estan al doble. Si el archivo
+            # ya se subio (mismo contenido) o sus movimientos ya estan, no
+            # se importa: se manda a revisar con el aviso.
+            gemelo = _archivo_ya_subido(db, huella, record.id)
+            repetidas = _cuantas_repetidas(db, parsed, record.id)
+            sospechoso = gemelo is not None or repetidas > 0
+            if gemelo is not None:
+                repetido_de.append((nombre, gemelo.filename))
+            elif repetidas:
+                con_repetidas.append((nombre, repetidas))
+
+            if con_revision or sospechoso:
                 # Se guarda lo leido para la pantalla de revision, pero no
                 # se crea ningun movimiento hasta que se confirme.
                 record.row_count = parsed.row_count
@@ -310,6 +327,32 @@ async def upload(
         )
 
     movimientos = sum(r.row_count for r in importados)
+    aviso_repetidos = ""
+    for nombre, anterior in repetido_de:
+        aviso_repetidos += (
+            f" '{nombre}' tiene el mismo contenido que '{anterior}', que ya subiste: "
+            "no se importo nada, revisalo antes."
+        )
+    for nombre, cuantas in con_repetidas:
+        aviso_repetidos += (
+            f" '{nombre}' trae {cuantas} movimiento{'' if cuantas == 1 else 's'} que ya "
+            "estaban importados: no se importo nada, revisalo antes."
+        )
+
+    pendientes = [r for r in importados if not r.imported]
+    if pendientes and not con_revision:
+        # Hay algo sospechoso: se va a revisar aunque no lo hubiera pedido.
+        mensaje = (
+            f"{len(importados)} archivo{'' if len(importados) == 1 else 's'} leido"
+            f"{'' if len(importados) == 1 else 's'}." + aviso_repetidos
+        )
+        if fallos:
+            mensaje += " No se pudieron leer: " + "; ".join(fallos) + "."
+        return RedirectResponse(
+            f"/archivos/{pendientes[0].id}/revisar?message={quote(mensaje)}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
     if con_revision:
         if len(importados) == 1:
             mensaje = f"'{importados[0].filename}': {movimientos} filas leidas. Revisalas antes de importar."
@@ -318,6 +361,7 @@ async def upload(
                 f"{len(importados)} archivos leidos ({movimientos} filas). "
                 "Revisalos uno por uno antes de importar."
             )
+        mensaje += aviso_repetidos
         if leidos_por_modelo:
             mensaje += f" {len(leidos_por_modelo)} lo leyo el modelo."
         if avisos_modelo:
@@ -475,6 +519,51 @@ def _preview(db: Session, record: UploadedFile, mapping: dict | None, persona: s
     con_ia = categorization_mode(db) == CAT_AI and get_settings().chat_enabled
     categorize_rows(parsed.rows, load_rules(db, include_defaults=not con_ia))
     return parsed
+
+
+def _hash_contenido(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _archivo_ya_subido(db: Session, huella: str, excluir: int) -> UploadedFile | None:
+    """Busca un archivo con el mismo contenido, aunque se llame distinto.
+
+    A los archivos subidos antes de que existiera la huella se les calcula
+    aqui, una vez: asi el aviso tambien funciona con lo que ya estaba.
+    """
+    if not huella:
+        return None
+    for record in db.execute(select(UploadedFile)).scalars().all():
+        if record.id == excluir:
+            continue
+        if not record.content_hash:
+            guardado = _stored_file(record)
+            if guardado is None:
+                continue
+            try:
+                record.content_hash = _hash_contenido(guardado.read_bytes())
+            except OSError:
+                continue
+        if record.content_hash == huella:
+            return record
+    return None
+
+
+def _cuantas_repetidas(db: Session, parsed, file_id: int) -> int:
+    """Cuantas filas del archivo ya estan importadas, fila por fila.
+
+    Un resumen descargado dos veces puede tener bytes distintos y los
+    mismos movimientos; y dos resumenes de meses contiguos se superponen.
+    Comparar fecha, importe y descripcion encuentra las dos cosas.
+    """
+    conocidas = _ya_importadas(db, file_id)
+    repetidas = 0
+    for row in parsed.rows:
+        fecha = row["date"].isoformat() if row.get("date") else ""
+        firma = (fecha, round(float(row.get("amount") or 0.0), 2), normalize(row.get("description") or ""))
+        if firma in conocidas:
+            repetidas += 1
+    return repetidas
 
 
 def _ya_importadas(db: Session, file_id: int) -> set[tuple]:
@@ -659,6 +748,9 @@ def _preview_context(db: Session, record: UploadedFile, parsed, excluidas: set[i
             parsed, (parsed.mapping.get("default_currency") or base_currency(db)).upper()
         ),
         "duplicadas": sum(1 for f in filas if f["duplicada"]),
+        # Mismo contenido que otro archivo ya subido: importarlo seria
+        # duplicar todo.
+        "gemelo": _archivo_ya_subido(db, record.content_hash, record.id),
         # Reimportar reemplaza los movimientos del archivo: si alguno fue
         # corregido a mano, esa correccion se pierde y hay que avisarlo.
         "corregidas": db.execute(

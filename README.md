@@ -158,6 +158,23 @@ En la revisión de cada archivo hay además un botón para pedírselo al modelo 
 vez, y otro para volver atrás. La lectura del modelo queda guardada en el
 archivo, así que no se paga de nuevo al previsualizar ni al reimportar.
 
+## Nada entra dos veces sin avisar
+
+Subir dos veces el mismo resumen es el error más fácil de cometer y el más
+difícil de notar: todo parece correcto salvo que los totales están al doble.
+Por eso un archivo **no se importa directo** cuando hay sospecha de repetición:
+
+- **Mismo contenido** (SHA-256 de los bytes, así que da igual cómo se llame el
+  archivo): la pantalla de revisión dice cuál era el anterior y cuándo lo
+  subiste, y recomienda descartarlo.
+- **Movimientos que ya estaban** (misma fecha, importe y descripción): es el
+  caso de dos resúmenes que se superponen. Se marcan fila por fila y hay un
+  botón para desmarcarlas todas, así entra solo lo nuevo.
+
+En los dos casos el archivo queda **sin importar** y se abre la revisión, aunque
+hayas destildado "Revisar antes de importar". El aviso no es una prohibición: si
+de verdad lo querés duplicado, importás desde ahí.
+
 ## Revisar antes de importar
 
 Subir y ver el resultado en los totales son dos pasos distintos. Al subir, la
