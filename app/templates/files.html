@@ -78,8 +78,14 @@
   <p class="subtitle">Sube tu primer export de gastos para ver el dashboard.</p>
 </div>
 {% else %}
+{% for seccion in secciones %}
+<section class="file-month" data-mes="{{ seccion.clave }}">
+  <h2 class="file-month-title">
+    {{ seccion.titulo }}
+    <span class="hint">{{ seccion.files | length }} archivo{{ '' if seccion.files | length == 1 else 's' }}</span>
+  </h2>
 <div class="stack">
-  {% for item in files %}
+  {% for item in seccion.files %}
   {% set f = item.obj %}
   <div class="card">
     <div class="file-row">
@@ -137,5 +143,7 @@
   </div>
   {% endfor %}
 </div>
+</section>
+{% endfor %}
 {% endif %}
 {% endblock %}

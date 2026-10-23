@@ -148,6 +148,65 @@ async def _categorize_after_import(db: Session) -> str:
     return aviso + _descartadas(descartados)
 
 
+MESES = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+]
+
+
+def _mes_de_cada_archivo(db: Session) -> dict[int, str]:
+    """El mes al que pertenece cada archivo, como 'AAAA-MM'.
+
+    Un archivo es del mes en que caen sus movimientos, no del dia en que
+    se subio: el resumen de mayo subido en junio es de mayo. Si el
+    archivo pisa dos meses (un resumen de tarjeta que cierra a mitad de
+    mes), gana el mes con mas movimientos.
+    """
+    filas = db.execute(
+        select(Transaction.file_id, Transaction.date)
+        .where(Transaction.date.is_not(None))
+    ).all()
+    cuenta: dict[int, dict[str, int]] = {}
+    for file_id, fecha in filas:
+        mes = fecha.strftime("%Y-%m")
+        por_mes = cuenta.setdefault(file_id, {})
+        por_mes[mes] = por_mes.get(mes, 0) + 1
+    # Ante empate, el mes mas reciente.
+    return {
+        file_id: max(por_mes.items(), key=lambda item: (item[1], item[0]))[0]
+        for file_id, por_mes in cuenta.items()
+    }
+
+
+def _titulo_mes(mes: str) -> str:
+    anio, numero = mes.split("-")
+    return f"{MESES[int(numero) - 1].capitalize()} {anio}"
+
+
+def _agrupar_por_mes(files: list[dict]) -> list[dict]:
+    """Secciones para la pantalla de archivos: una por mes, la ultima arriba.
+
+    Lo que todavia no se importo no tiene movimientos, asi que no tiene
+    mes: va en una seccion propia al principio, porque es lo que espera
+    una accion. Lo importado sin fechas queda al final.
+    """
+    sin_importar = [f for f in files if not f["obj"].imported]
+    sin_fecha = [f for f in files if f["obj"].imported and not f["mes"]]
+    por_mes: dict[str, list[dict]] = {}
+    for item in files:
+        if item["obj"].imported and item["mes"]:
+            por_mes.setdefault(item["mes"], []).append(item)
+
+    secciones: list[dict] = []
+    if sin_importar:
+        secciones.append({"clave": "sin-importar", "titulo": "Sin importar", "files": sin_importar})
+    for mes in sorted(por_mes, reverse=True):
+        secciones.append({"clave": mes, "titulo": _titulo_mes(mes), "files": por_mes[mes]})
+    if sin_fecha:
+        secciones.append({"clave": "sin-fecha", "titulo": "Sin fecha", "files": sin_fecha})
+    return secciones
+
+
 @router.get("", response_class=HTMLResponse)
 def files_page(
     request: Request,
@@ -157,6 +216,7 @@ def files_page(
     error: str | None = None,
 ):
     records = db.execute(select(UploadedFile).order_by(UploadedFile.uploaded_at.desc())).scalars().all()
+    meses = _mes_de_cada_archivo(db)
     files = []
     for record in records:
         files.append(
@@ -164,6 +224,7 @@ def files_page(
                 "obj": record,
                 "mapping": json.loads(record.column_mapping or "{}"),
                 "columns": json.loads(record.detected_columns or "[]"),
+                "mes": meses.get(record.id, ""),
             }
         )
     return templates.TemplateResponse(
@@ -171,6 +232,7 @@ def files_page(
         "files.html",
         {
             "files": files,
+            "secciones": _agrupar_por_mes(files),
             "fields": FIELDS,
             "storage_warning": get_settings().storage_warning,
             "currencies": cur.known_codes(),

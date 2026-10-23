@@ -426,6 +426,12 @@ details.mapping { margin-top: 12px; border-top: 1px solid var(--grid); padding-t
 details.mapping summary { cursor: pointer; font-size: 13px; color: var(--text-secondary); }
 .mapping-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
 .stack { display: flex; flex-direction: column; gap: 14px; }
+.file-month + .file-month { margin-top: 28px; }
+.file-month-title {
+  display: flex; align-items: baseline; gap: 10px; margin: 0 0 10px;
+  font-size: 15px;
+}
+.file-month-title .hint { color: var(--text-muted); font-size: 12px; font-weight: 400; }
 
 /* ---------- Chat ---------- */
 .chat-layout { display: grid; grid-template-columns: 1fr; gap: 16px; }
