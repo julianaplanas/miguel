@@ -1,6 +1,9 @@
 /* Chat: render de markdown ligero, bloques ```chart y envio al backend. */
 (function () {
   const log = document.getElementById('chat-log');
+  // Sin pagina (los tests cargan este archivo en node) solo se expone el
+  // render de markdown; el resto necesita el DOM del chat.
+  const soloMarkdown = !log;
   const form = document.getElementById('chat-form');
   const input = document.getElementById('mensaje');
   const boton = document.getElementById('enviar');
@@ -32,7 +35,49 @@
     const lineas = html.split('\n');
     const salida = [];
     let lista = null;
+    let tabla = null; // filas acumuladas de una tabla | a | b |
+
+    function esFilaDeTabla(linea) {
+      return /^\s*\|.*\|\s*$/.test(linea);
+    }
+    function esSeparadorDeTabla(linea) {
+      return /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(linea);
+    }
+    function celdas(linea) {
+      return linea.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(function (c) {
+        return c.trim();
+      });
+    }
+    function cerrarTabla() {
+      if (!tabla) return;
+      let out = '<div class="table-wrap"><table>';
+      tabla.forEach(function (fila, i) {
+        const tag = i === 0 ? 'th' : 'td';
+        out += '<tr>' + fila.map(function (c) {
+          const numerica = /^[-+]?[\d.,]+\s*%?$/.test(c);
+          return '<' + tag + (numerica && i > 0 ? ' class="num"' : '') + '>' + c + '</' + tag + '>';
+        }).join('') + '</tr>';
+      });
+      out += '</table></div>';
+      salida.push(out);
+      tabla = null;
+    }
+
     lineas.forEach(function (linea) {
+      if (esFilaDeTabla(linea)) {
+        if (lista) { salida.push('</' + lista + '>'); lista = null; }
+        if (esSeparadorDeTabla(linea)) return; // la fila |---|---| no se pinta
+        if (!tabla) tabla = [];
+        tabla.push(celdas(linea));
+        return;
+      }
+      cerrarTabla();
+      // Una linea de solo guiones es un separador horizontal, no un parrafo.
+      if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(linea)) {
+        if (lista) { salida.push('</' + lista + '>'); lista = null; }
+        salida.push('<hr>');
+        return;
+      }
       const punto = linea.match(/^\s*[-*]\s+(.*)$/);
       const numero = linea.match(/^\s*\d+[.)]\s+(.*)$/);
       if (punto || numero) {
@@ -48,10 +93,14 @@
         if (linea.trim()) salida.push('<p>' + linea + '</p>');
       }
     });
+    cerrarTabla();
     if (lista) salida.push('</' + lista + '>');
 
     return { html: salida.join('\n'), bloques: bloques };
   }
+
+  window.ChatMarkdown = markdown;
+  if (soloMarkdown) return;
 
   function especificacionGrafico(code) {
     try {

@@ -16,3 +16,12 @@ def test_point_value_por_tipo_de_grafico():
         ["node", str(HARNESS)], capture_output=True, text=True, timeout=60
     )
     assert resultado.returncode == 0, resultado.stderr or resultado.stdout
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node no esta instalado")
+def test_markdown_del_chat_pinta_tablas_y_separadores():
+    resultado = subprocess.run(
+        ["node", str(Path(__file__).parent / "chat_markdown_harness.mjs")],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert resultado.returncode == 0, resultado.stderr or resultado.stdout

@@ -450,7 +450,9 @@ details.mapping summary { cursor: pointer; font-size: 13px; color: var(--text-se
 .msg .bubble ul, .msg .bubble ol { margin: 4px 0 8px; padding-left: 20px; }
 .msg .bubble code { background: var(--surface); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
 .msg .bubble pre { background: var(--surface); padding: 10px; border-radius: 8px; overflow-x: auto; }
-.msg .bubble table { font-size: 13px; }
+.msg .bubble table { font-size: 13px; width: auto; min-width: 50%; margin: 6px 0 10px; }
+.msg .bubble th, .msg .bubble td { padding: 6px 10px; }
+.msg .bubble hr { border: 0; border-top: 1px solid var(--border); margin: 10px 0; }
 .chat-chart { margin-top: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
 .chat-chart .chart-box { height: 260px; }
 .chat-form { display: flex; gap: 10px; align-items: flex-end; margin-top: 14px; }

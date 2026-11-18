@@ -16,8 +16,15 @@ from app.preferences import base_currency
 SYSTEM_PROMPT = """Eres un analista financiero personal que ayuda a entender gastos.
 
 Trabajas con los datos de los archivos ACTIVOS que el usuario subio a su panel.
-Recibes un resumen agregado en JSON (totales por categoria, por persona, por mes,
-cruce persona x categoria, mayores gastos y una muestra de transacciones).
+Recibes un resumen agregado en JSON. Los UNICOS desgloses que existen son los
+que vienen en ese JSON:
+- `por_categoria`, `por_persona`, `por_mes`, `persona_x_categoria`
+- `por_archivo`: cada archivo subido (resumen de banco o tarjeta) con su
+  nombre, sus movimientos y su gasto. El nombre del archivo es la unica pista
+  de que banco o tarjeta es; si el nombre no lo dice, no lo sabes.
+- `por_cuenta`: solo si los archivos traian una columna de cuenta.
+- `mayores_gastos` y `muestra_transacciones_recientes`: una MUESTRA, no el
+  total. No calcules totales ni cuentes movimientos a partir de ella.
 
 Reglas:
 - Responde SIEMPRE en espanol, claro y concreto.
@@ -25,11 +32,19 @@ Reglas:
   hay y su tipo de cambio. Si hay mas de una, NUNCA sumes importes de monedas
   distintas sin convertirlos, y di explicitamente en que moneda esta cada cifra.
   Si falta el tipo de cambio de alguna, dilo en vez de estimarlo.
-- Basa cada afirmacion en los datos recibidos. Si algo no esta en los datos, dilo
-  en vez de inventarlo.
+- Cada cifra que des tiene que estar en el JSON o salir de sumar o dividir
+  cifras del JSON. Si te piden un desglose que no esta (por banco, por
+  tarjeta, por comercio, por dia de la semana, por medio de pago...), di que
+  los datos no lo traen y ofrece el mas parecido que si este. NUNCA inventes
+  nombres de bancos, tarjetas, comercios ni importes: una cifra inventada con
+  dos decimales es peor que decir "no lo se".
+- Si el usuario te corrige ("no tengo tal banco"), no reemplaces el dato
+  inventado por otro inventado: reconoce que ese desglose no esta en los datos.
 - Da cifras con dos decimales y porcentajes cuando ayuden a comparar.
 - Se breve por defecto (3-8 lineas) y amplia solo si te lo piden.
 - Convencion de signo: importe positivo = gasto, importe negativo = ingreso.
+- Para comparar varias filas usa una tabla markdown (| a | b |) con la fila
+  de separacion (|---|---|). No uses lineas de guiones sueltas como separador.
 
 Cuando un grafico ayude a responder, incluye AL FINAL del mensaje uno o mas
 bloques de codigo con el lenguaje `chart` y este JSON exacto:
@@ -46,6 +61,33 @@ No inventes datos para rellenar un grafico y no pongas mas de 12 etiquetas.
 
 class OpenRouterError(RuntimeError):
     pass
+
+
+def _totals_by(rows: list[dict[str, Any]], clave: str) -> list[dict[str, Any]]:
+    """Gasto, ingreso y movimientos por archivo o por cuenta, moneda a moneda.
+
+    Se agrupa sin convertir: el modelo tiene los tipos de cambio en `monedas`
+    y la regla de no sumar monedas distintas. Es lo que le permite contestar
+    "cuanto gaste con la tarjeta X" cuando el nombre del archivo lo dice, en
+    vez de inventarse un banco.
+    """
+    grupos: dict[tuple[str, str], dict[str, Any]] = {}
+    for r in rows:
+        nombre = r.get(clave) or "(sin dato)"
+        entrada = grupos.setdefault(
+            (nombre, r["currency"]),
+            {"nombre": nombre, "moneda": r["currency"], "movimientos": 0, "gasto": 0.0, "ingreso": 0.0},
+        )
+        entrada["movimientos"] += 1
+        if r["amount"] > 0:
+            entrada["gasto"] += r["amount"]
+        else:
+            entrada["ingreso"] += -r["amount"]
+    salida = sorted(grupos.values(), key=lambda g: (g["nombre"], g["moneda"]))
+    for g in salida:
+        g["gasto"] = round(g["gasto"], 2)
+        g["ingreso"] = round(g["ingreso"], 2)
+    return salida
 
 
 def build_data_context(db: Session, max_sample: int = 40) -> dict[str, Any]:
@@ -65,6 +107,10 @@ def build_data_context(db: Session, max_sample: int = 40) -> dict[str, Any]:
         for r in rows[:max_sample]
     ]
     return {
+        "archivos_activos": len({r["file_id"] for r in rows}),
+        "movimientos_totales": len(rows),
+        "por_archivo": _totals_by(rows, "filename"),
+        "por_cuenta": _totals_by(rows, "account") if any(r["account"] for r in rows) else [],
         "moneda_base": base_currency(db),
         "monedas": {
             "presentes": summary["currencies"],
