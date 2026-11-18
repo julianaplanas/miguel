@@ -78,6 +78,12 @@
         salida.push('<hr>');
         return;
       }
+      const cita = linea.match(/^\s*&gt;\s?(.*)$/);
+      if (cita) {
+        if (lista) { salida.push('</' + lista + '>'); lista = null; }
+        salida.push('<blockquote>' + cita[1] + '</blockquote>');
+        return;
+      }
       const punto = linea.match(/^\s*[-*]\s+(.*)$/);
       const numero = linea.match(/^\s*\d+[.)]\s+(.*)$/);
       if (punto || numero) {

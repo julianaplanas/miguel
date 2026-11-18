@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db import get_db
 from app.deps import require_user, templates
-from app.llm import OpenRouterError, build_messages, complete
+from app.llm import OpenRouterError, build_messages, chat_with_tools
 from app.models import ChatMessage, UploadedFile
 
 router = APIRouter()
@@ -80,14 +80,29 @@ async def api_chat(
     db.commit()
 
     try:
-        answer = await complete(messages, model=model)
+        resultado = await chat_with_tools(db, messages, model=model)
     except OpenRouterError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    answer = resultado["reply"]
+    if resultado["sin_respaldo"]:
+        # El modelo insistio con cifras que no salen de ninguna consulta. Se
+        # dejan a la vista, marcadas: mejor un aviso que una cifra creible.
+        answer += (
+            "\n\n> ⚠ Cifras sin respaldo en los datos: "
+            + ", ".join(resultado["sin_respaldo"])
+            + ". No salen de ninguna consulta; no te fies de ellas."
+        )
 
     settings = get_settings()
     db.add(ChatMessage(role="assistant", content=answer, model=model or settings.openrouter_model))
     db.commit()
-    return {"reply": answer, "model": model or settings.openrouter_model}
+    return {
+        "reply": answer,
+        "model": model or settings.openrouter_model,
+        "consultas": resultado["consultas"],
+        "sin_respaldo": resultado["sin_respaldo"],
+    }
 
 
 @router.post("/api/chat/limpiar")

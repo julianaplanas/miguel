@@ -16,8 +16,15 @@ from app.preferences import base_currency
 SYSTEM_PROMPT = """Eres un analista financiero personal que ayuda a entender gastos.
 
 Trabajas con los datos de los archivos ACTIVOS que el usuario subio a su panel.
-Recibes un resumen agregado en JSON. Los UNICOS desgloses que existen son los
-que vienen en ese JSON:
+Tienes herramientas para consultarlos: `agrupar` (totales por categoria,
+persona, mes, archivo, cuenta, moneda o descripcion, con filtros),
+`buscar_movimientos` (movimientos concretos) y `listar_valores` (nombres
+exactos para filtrar). USALAS: cualquier cifra que no este en el resumen de
+abajo tiene que salir de una consulta. Si una pregunta necesita un desglose,
+consultalo en vez de deducirlo. Puedes encadenar varias consultas.
+
+Ademas recibes un resumen agregado en JSON para orientarte. Los desgloses que
+existen en los datos son estos (y nada mas):
 - `por_categoria`, `por_persona`, `por_mes`, `persona_x_categoria`
 - `por_archivo`: cada archivo subido (resumen de banco o tarjeta) con su
   nombre, sus movimientos y su gasto. El nombre del archivo es la unica pista
@@ -32,12 +39,15 @@ Reglas:
   hay y su tipo de cambio. Si hay mas de una, NUNCA sumes importes de monedas
   distintas sin convertirlos, y di explicitamente en que moneda esta cada cifra.
   Si falta el tipo de cambio de alguna, dilo en vez de estimarlo.
-- Cada cifra que des tiene que estar en el JSON o salir de sumar o dividir
-  cifras del JSON. Si te piden un desglose que no esta (por banco, por
-  tarjeta, por comercio, por dia de la semana, por medio de pago...), di que
-  los datos no lo traen y ofrece el mas parecido que si este. NUNCA inventes
-  nombres de bancos, tarjetas, comercios ni importes: una cifra inventada con
-  dos decimales es peor que decir "no lo se".
+- Cada cifra que des tiene que venir del resumen o de una consulta, o salir
+  de sumar, restar o dividir cifras de ahi. Una verificacion automatica
+  comprueba cada numero de tu respuesta contra los resultados de las
+  consultas: lo que no cuadre se te devuelve para corregirlo. Si te piden un
+  desglose que no existe (por banco, por tarjeta, por dia de la semana, por
+  medio de pago...), di que los datos no lo traen y ofrece el mas parecido
+  (por archivo suele ser el que sirve). NUNCA inventes nombres de bancos,
+  tarjetas, comercios ni importes: una cifra inventada con dos decimales es
+  peor que decir "no lo se".
 - Si el usuario te corrige ("no tengo tal banco"), no reemplaces el dato
   inventado por otro inventado: reconoce que ese desglose no esta en los datos.
 - Da cifras con dos decimales y porcentajes cuando ayuden a comparar.
@@ -147,22 +157,13 @@ def build_messages(
     return messages
 
 
-async def complete(
-    messages: list[dict[str, str]],
-    model: str | None = None,
-    max_tokens: int = 4000,
-) -> str:
+async def _request(payload: dict[str, Any]) -> dict[str, Any]:
+    """Una llamada a chat/completions; devuelve el JSON entero."""
     settings = get_settings()
     if not settings.openrouter_api_key:
         raise OpenRouterError(
             "Falta OPENROUTER_API_KEY. Anadela en las variables de entorno para activar el chat."
         )
-    payload = {
-        "model": model or settings.openrouter_model,
-        "messages": messages,
-        "temperature": 0.2,
-        "max_tokens": max_tokens,
-    }
     headers = {
         "Authorization": f"Bearer {settings.openrouter_api_key}",
         "Content-Type": "application/json",
@@ -179,12 +180,136 @@ async def complete(
     if response.status_code >= 400:
         detail = response.text[:500]
         raise OpenRouterError(f"OpenRouter respondio {response.status_code}: {detail}")
-
-    data = response.json()
     try:
-        return data["choices"][0]["message"]["content"] or ""
+        return response.json()
+    except ValueError as exc:
+        raise OpenRouterError("OpenRouter no devolvio JSON.") from exc
+
+
+def _mensaje(data: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return data["choices"][0]["message"] or {}
     except (KeyError, IndexError, TypeError) as exc:
         raise OpenRouterError(f"Respuesta inesperada de OpenRouter: {json.dumps(data)[:400]}") from exc
+
+
+async def complete(
+    messages: list[dict[str, str]],
+    model: str | None = None,
+    max_tokens: int = 4000,
+) -> str:
+    settings = get_settings()
+    data = await _request(
+        {
+            "model": model or settings.openrouter_model,
+            "messages": messages,
+            "temperature": 0.2,
+            "max_tokens": max_tokens,
+        }
+    )
+    return _mensaje(data).get("content") or ""
+
+
+VERIFY_PROMPT = """Verificacion automatica: estas cifras de tu respuesta no salen de
+ninguna consulta ni del resumen: {cifras}.
+
+Vuelve a escribir la respuesta completa usando SOLO cifras que hayan
+devuelto las herramientas (consulta de nuevo si te falta algo). Si una
+cifra no se puede obtener de los datos, quitala y di que no esta."""
+
+
+async def chat_with_tools(
+    db: Session,
+    messages: list[dict[str, Any]],
+    model: str | None = None,
+    max_rounds: int = 8,
+    verify_rounds: int = 1,
+) -> dict[str, Any]:
+    """Conversa con herramientas y verifica las cifras de la respuesta.
+
+    El modelo pide consultas (app/chat_tools.py) hasta que tiene lo que
+    necesita y contesta. Despues, cada numero de la respuesta se comprueba
+    contra TODO lo que devolvieron las consultas y el resumen inicial
+    (app/verificar.py). Lo que no cuadra se le devuelve una vez para que
+    lo corrija; si sigue sin cuadrar, se avisa al usuario con la lista.
+
+    Devuelve {"reply", "sin_respaldo", "consultas"}.
+    """
+    from app.chat_tools import TOOLS, run_tool
+    from app.verificar import numeros_en, verificar
+
+    settings = get_settings()
+    modelo = model or settings.openrouter_model
+    conversacion: list[dict[str, Any]] = list(messages)
+    # Evidencia: los numeros del resumen que va en el system prompt, mas lo
+    # que devuelva cada herramienta.
+    evidencia: set[float] = set()
+    for m in conversacion:
+        if m.get("role") == "system" and "RESUMEN DE DATOS ACTIVOS (JSON):\n" in m.get("content", ""):
+            try:
+                evidencia |= numeros_en(json.loads(m["content"].split("RESUMEN DE DATOS ACTIVOS (JSON):\n", 1)[1]))
+            except ValueError:
+                pass
+    consultas: list[dict[str, Any]] = []
+    con_herramientas = True
+
+    async def responder() -> str:
+        nonlocal con_herramientas
+        for _ in range(max_rounds):
+            payload: dict[str, Any] = {
+                "model": modelo,
+                "messages": conversacion,
+                "temperature": 0.2,
+                "max_tokens": 4000,
+            }
+            if con_herramientas:
+                payload["tools"] = TOOLS
+            try:
+                data = await _request(payload)
+            except OpenRouterError as exc:
+                # Hay modelos sin soporte de herramientas: se sigue sin ellas
+                # (con la verificacion igual) en vez de tumbar el chat.
+                if con_herramientas and "tool" in str(exc).lower():
+                    con_herramientas = False
+                    continue
+                raise
+            mensaje = _mensaje(data)
+            llamadas = mensaje.get("tool_calls") or []
+            if not llamadas:
+                return mensaje.get("content") or ""
+            conversacion.append(
+                {"role": "assistant", "content": mensaje.get("content") or "", "tool_calls": llamadas}
+            )
+            for llamada in llamadas:
+                funcion = llamada.get("function") or {}
+                nombre = funcion.get("name") or ""
+                try:
+                    args = json.loads(funcion.get("arguments") or "{}")
+                except ValueError:
+                    args = {}
+                resultado = run_tool(db, nombre, args if isinstance(args, dict) else {})
+                evidencia.update(numeros_en(resultado))
+                consultas.append({"herramienta": nombre, "argumentos": args})
+                conversacion.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": llamada.get("id") or "",
+                        "content": json.dumps(resultado, ensure_ascii=False, default=str),
+                    }
+                )
+        return "No consegui terminar la consulta: demasiadas idas y vueltas con los datos."
+
+    respuesta = await responder()
+    sin_respaldo = verificar(respuesta, evidencia)
+    for _ in range(verify_rounds):
+        if not sin_respaldo:
+            break
+        conversacion.append({"role": "assistant", "content": respuesta})
+        conversacion.append({"role": "user", "content": VERIFY_PROMPT.format(cifras=", ".join(sin_respaldo))})
+        respuesta = await responder()
+        sin_respaldo = verificar(respuesta, evidencia)
+
+    return {"reply": respuesta, "sin_respaldo": sin_respaldo, "consultas": consultas}
 
 
 async def list_models(limit: int = 60) -> list[dict[str, str]]:
