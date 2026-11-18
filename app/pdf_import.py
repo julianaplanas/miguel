@@ -339,20 +339,69 @@ def _column_clusters(palabras: list[dict[str, Any]], tolerancia: float = 10.0) -
     return sorted(columnas, key=lambda c: c["x1"])
 
 
-def _label_columns(columnas: list[dict], lineas: list[list[dict[str, Any]]]) -> None:
-    """Le pone moneda a cada columna, si alguna cabecera la nombra.
+def _label_columns(columnas: list[dict], lineas: list[list[dict[str, Any]]], pagina: int = 0) -> None:
+    """Anota en cada columna las cabeceras de moneda que tiene en esta hoja.
 
     La cabecera solo ETIQUETA columnas que ya existen: si no aparece, o no
     se entiende, la columna sigue valiendo y se usa la moneda del archivo.
+
+    La moneda de un importe se decide importe por importe (`_codigo_de`):
+    la cabecera sin importes mas cercana POR ENCIMA de el, en su columna.
+    Antes la columna entera tomaba la moneda de cualquier palabra "dolar"
+    o "U$S" que cayera sobre ella en cualquier parte de la pagina: el
+    cuadro de saldos en pesos/dolares de arriba, la nota "Limite de compra
+    en U$S" o la linea "Total en U$S" del pie marcaban toda la columna de
+    pesos como dolares y habia que corregir fila por fila.
+
+    `codigo` queda como la moneda MAYORITARIA de la columna, para las hojas
+    siguientes, que suelen no repetir la cabecera.
     """
+    if not columnas:
+        return
+    for columna in columnas:
+        columna.setdefault("cabeceras", {})
+        columna.setdefault("votos", Counter())
+    cabeceras: list[tuple[float, dict[str, Any], str]] = []
     for linea in lineas:
+        if any(WORD_AMOUNT_RE.match(p["text"]) for p in linea):
+            continue
         for palabra in linea:
             codigo = CURRENCY_COLUMNS.get(_normalize(palabra["text"]))
-            if not codigo:  # None (no es cabecera) o "" (moneda del archivo)
+            if codigo is not None:
+                cabeceras.append((palabra["top"], palabra, codigo))
+    for columna in columnas:
+        propias = sorted(
+            (top, codigo)
+            for top, palabra, codigo in cabeceras
+            if palabra["x0"] <= columna["x1"] and palabra["x1"] >= columna["x0"]
+        )
+        columna["cabeceras"][pagina] = propias
+    # Cada importe de la hoja vota por la cabecera que tiene encima.
+    for linea in lineas:
+        for palabra in linea:
+            if not WORD_AMOUNT_RE.match(palabra["text"]):
                 continue
-            for columna in columnas:
-                if palabra["x0"] <= columna["x1"] and palabra["x1"] >= columna["x0"]:
-                    columna["codigo"] = codigo
+            indice = _column_index(palabra, columnas)
+            if indice is None:
+                continue
+            codigo = _cabecera_encima(columnas[indice], pagina, palabra["top"])
+            if codigo is not None:
+                columnas[indice]["votos"][codigo] += 1
+    for columna in columnas:
+        if columna["votos"]:
+            columna["codigo"] = columna["votos"].most_common(1)[0][0]
+
+
+def _cabecera_encima(columna: dict, pagina: int, top: float) -> str | None:
+    """Moneda de la cabecera mas cercana por encima de ese importe, o None."""
+    encima = [codigo for t, codigo in columna.get("cabeceras", {}).get(pagina, []) if t < top]
+    return encima[-1] if encima else None
+
+
+def _codigo_de(columna: dict, pagina: int, top: float) -> str:
+    """Moneda de un importe: su cabecera en esta hoja, o la mayoritaria."""
+    codigo = _cabecera_encima(columna, pagina, top)
+    return columna.get("codigo", "") if codigo is None else codigo
 
 
 def _column_index(palabra: dict[str, Any], columnas: list[dict]) -> int | None:
@@ -374,6 +423,7 @@ def _anotar_declarado(
     skipped: list[dict[str, Any]] | None,
     linea: list[dict[str, Any]],
     columnas: list[dict],
+    pagina: int = 0,
 ) -> None:
     """Guarda una linea sin fecha que lleva importes en las columnas."""
     if skipped is None:
@@ -388,7 +438,7 @@ def _anotar_declarado(
                 numero = encontrado.group(1)
                 if encontrado.group(2):
                     numero = f"-{numero.lstrip('-')}"
-                importes.append((numero, columnas[indice]["codigo"]))
+                importes.append((numero, _codigo_de(columnas[indice], pagina, palabra["top"])))
                 continue
         palabras.append(palabra["text"])
     if not importes:
@@ -430,10 +480,10 @@ CURRENCY_SYMBOLS = {
 
 
 def _line_amounts(
-    linea: list[dict[str, Any]], desde: int, columnas: list[dict]
-) -> tuple[list[tuple[int, str, str]], list[str]]:
-    """Importes de la linea con su columna y su simbolo, y la descripcion."""
-    importes: list[tuple[int, str, str]] = []
+    linea: list[dict[str, Any]], desde: int, columnas: list[dict], pagina: int = 0
+) -> tuple[list[tuple[int, str, str, str]], list[str]]:
+    """Importes de la linea (columna, numero, simbolo, moneda) y la descripcion."""
+    importes: list[tuple[int, str, str, str]] = []
     descripcion: list[str] = []
     simbolo = ""
     for palabra in linea[desde:]:
@@ -445,7 +495,7 @@ def _line_amounts(
                 numero = encontrado.group(1)
                 if encontrado.group(2):
                     numero = f"-{numero.lstrip('-')}"
-                importes.append((indice, numero, simbolo))
+                importes.append((indice, numero, simbolo, _codigo_de(columnas[indice], pagina, palabra["top"])))
                 simbolo = ""
                 continue
         marca = CURRENCY_SYMBOLS.get(_normalize(texto))
@@ -484,13 +534,13 @@ def _rows_from_layout(
         return []
 
     candidatas = []
-    for lineas in por_pagina:
+    for pagina, lineas in enumerate(por_pagina):
         for linea in lineas:
             fecha, desde = _line_date(linea, year_hint)
             if not fecha:
-                _anotar_declarado(skipped, linea, columnas)
+                _anotar_declarado(skipped, linea, columnas, pagina)
                 continue
-            importes, descripcion = _line_amounts(linea, desde, columnas)
+            importes, descripcion = _line_amounts(linea, desde, columnas, pagina)
             candidatas.append((fecha, descripcion, importes, linea, desde))
 
     con_importe = [c for c in candidatas if c[2]]
@@ -514,11 +564,11 @@ def _rows_from_layout(
                 _anotar(skipped, fecha, texto, sueltos, "sin leer")
             continue
 
-        indice, numero, simbolo = importes[0]
+        indice, numero, simbolo, moneda = importes[0]
         if tipico >= 2 and len(importes) < tipico:
             # Con dos importes por fila (movimiento + saldo), una fila con
             # uno solo suele ser el arrastre del saldo anterior.
-            _anotar(skipped, fecha, texto, [(numero, columnas[indice]["codigo"])])
+            _anotar(skipped, fecha, texto, [(numero, moneda)])
             continue
 
         if not texto or not _is_movement(texto):
@@ -526,7 +576,7 @@ def _rows_from_layout(
                 skipped,
                 fecha,
                 texto,
-                [(n, columnas[i]["codigo"] or sim) for i, n, sim in importes],
+                [(n, cod or sim) for _, n, sim, cod in importes],
             )
             continue
 
@@ -535,9 +585,9 @@ def _rows_from_layout(
                 "fecha": fecha,
                 "descripcion": texto[:200],
                 "importe": numero,
-                # La columna manda; el simbolo de la linea es el respaldo
-                # para los resumenes que no etiquetan las columnas.
-                "moneda": columnas[indice]["codigo"] or simbolo,
+                # La cabecera de la columna manda; el simbolo de la linea es
+                # el respaldo para los resumenes que no etiquetan columnas.
+                "moneda": moneda or simbolo,
             }
         )
     return filas
@@ -634,8 +684,8 @@ def extract_rows(data: bytes, skipped: list[dict[str, Any]] | None = None) -> pd
     por_pagina = [_page_lines(page) for page in paginas]
     palabras = [p for lineas in por_pagina for p in _amount_words(lineas)]
     columnas = _column_clusters(palabras)
-    for lineas in por_pagina:
-        _label_columns(columnas, lineas)
+    for pagina, lineas in enumerate(por_pagina):
+        _label_columns(columnas, lineas, pagina)
     por_posicion = _rows_from_layout(por_pagina, columnas, year_hint)
 
     por_texto = _rows_from_lines(texto_completo.splitlines(), year_hint)

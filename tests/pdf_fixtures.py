@@ -256,3 +256,54 @@ def resumen_dos_titulares() -> bytes:
     c.showPage()
     c.save()
     return buffer.getvalue()
+
+
+def resumen_pesos_con_nota_en_dolares() -> bytes:
+    """Resumen de una sola columna (pesos) con un cuadro de saldos arriba.
+
+    El cuadro "PESOS / DOLARES" del principio tiene la palabra DOLARES justo
+    encima de la columna de importes de la tabla de consumos (misma
+    posicion horizontal). Eso marcaba todo el resumen como dolares.
+    """
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    derecha = 190 * mm
+    y = 280 * mm
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(20 * mm, y, "BANCO EJEMPLO - Resumen de tarjeta VISA 2026")
+    y -= 10 * mm
+    c.setFont("Helvetica", 9)
+    # Cuadro de saldos: dos columnas, la de dolares alineada con la tabla.
+    c.drawRightString(derecha - 40 * mm, y, "PESOS")
+    c.drawRightString(derecha, y, "DOLARES")
+    y -= 5.5 * mm
+    for concepto, pesos, dolares in (
+        ("Saldo anterior", "95.300,00", "0,00"),
+        ("Su pago", "95.300,00-", "0,00"),
+    ):
+        c.drawString(20 * mm, y, concepto)
+        c.drawRightString(derecha - 40 * mm, y, pesos)
+        c.drawRightString(derecha - 7 * mm, y, dolares)  # no cae en la columna
+        y -= 5.5 * mm
+    y -= 6 * mm
+    c.drawString(20 * mm, y, "Limite de compra en U$S")
+    c.drawRightString(derecha, y, "500,00")
+    y -= 8 * mm
+    c.drawString(20 * mm, y, "FECHA       COMERCIO")
+    c.drawRightString(derecha, y, "IMPORTE")
+    y -= 6 * mm
+    for fecha, comercio, importe in (
+        ("04/02/2026", "MERCADOPAGO*VERDULERIA", "18.400,00"),
+        ("12/02/2026", "YPF SERVICIOS", "45.000,00"),
+        ("18/02/2026", "COTO DIGITAL", "32.150,00"),
+        ("25/02/2026", "FARMACITY", "12.750,80"),
+    ):
+        c.drawString(20 * mm, y, f"{fecha}  {comercio}")
+        c.drawRightString(derecha, y, importe)
+        y -= 5.5 * mm
+    y -= 4 * mm
+    c.drawString(20 * mm, y, "TOTAL CONSUMOS")
+    c.drawRightString(derecha, y, "108.300,80")
+    c.showPage()
+    c.save()
+    return buffer.getvalue()

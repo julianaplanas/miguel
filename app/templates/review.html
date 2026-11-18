@@ -246,6 +246,14 @@
         </select>
       </div>
       <div class="field">
+        <label for="force_currency">Moneda de cada fila</label>
+        <select id="force_currency" name="force_currency"
+                title="La deteccion mira la columna de dolares y los simbolos U$S/US$. Si marca dolares donde no los hay, fuerza la moneda del archivo.">
+          <option value="" {{ 'selected' if not mapping.get('force_currency') }}>Detectar (columna o simbolo U$S)</option>
+          <option value="1" {{ 'selected' if mapping.get('force_currency') }}>Todo en la moneda del archivo</option>
+        </select>
+      </div>
+      <div class="field">
         <label for="invert_sign">Signo</label>
         <select id="invert_sign" name="invert_sign">
           <option value="" {{ 'selected' if not mapping.get('invert_sign') }}>Positivo = gasto</option>

@@ -70,6 +70,12 @@
       {% for c in options.categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
     </select>
   </div>
+  <div class="field" id="campo-origen"{% if options.sources | length < 2 %} hidden{% endif %}>
+    <label for="origen">Banco / tarjeta</label>
+    <select id="origen" name="origen" multiple size="4">
+      {% for o in options.sources %}<option value="{{ o }}">{{ o }}</option>{% endfor %}
+    </select>
+  </div>
   <div class="field" id="campo-moneda"{% if options.currencies | length < 2 %} hidden{% endif %}>
     <label for="moneda">Moneda</label>
     <select id="moneda" name="moneda">

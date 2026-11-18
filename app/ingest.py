@@ -234,7 +234,14 @@ class ParsedFile:
 
 
 def _row_currency(row: Any, mapping: dict[str, Any], default_currency: str) -> str:
-    """Moneda de una fila: columna de moneda > simbolo en el importe > defecto."""
+    """Moneda de una fila: columna de moneda > simbolo en el importe > defecto.
+
+    Con `force_currency` en el mapeo todo va en la moneda del archivo: es
+    el boton de "este resumen es todo en pesos" para cuando la deteccion
+    se equivoca y no vale la pena corregir fila por fila.
+    """
+    if mapping.get("force_currency") and default_currency:
+        return default_currency
     if "currency" in mapping:
         code = cur.normalize_code(row.get(mapping["currency"]), "")
         if code:

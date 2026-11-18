@@ -133,3 +133,26 @@ def test_el_origen_se_corrige_en_la_revision(auth):
     with SessionLocal() as db:
         record = db.get(UploadedFile, file_id)
         assert (record.bank, record.card, record.imported) == ("ICBC", "Visa", True)
+
+
+def test_el_dashboard_filtra_por_origen(auth):
+    auth.post(
+        "/archivos/upload",
+        files={"files": ("g.pdf", io.BytesIO(_pdf("BANCO GALICIA\nResumen VISA")), "application/pdf")},
+        data={"revisar": ""},
+        follow_redirects=False,
+    )
+    auth.post(
+        "/archivos/upload",
+        files={"files": ("s.pdf", io.BytesIO(_pdf("Santander Rio\nMastercard", "FARMACITY")), "application/pdf")},
+        data={"revisar": ""},
+        follow_redirects=False,
+    )
+    todo = auth.get("/api/resumen").json()
+    galicia = auth.get("/api/resumen", params={"origen": "Galicia Visa"}).json()
+    assert todo["kpis"]["transactions"] == 4
+    assert galicia["kpis"]["transactions"] == 2
+    assert galicia["kpis"]["total_expense"] == pytest.approx(63400.0)
+    html = auth.get("/").text
+    assert 'id="origen"' in html and "Santander Mastercard" in html
+    assert todo["options"]["sources"] == ["Galicia Visa", "Santander Mastercard"]

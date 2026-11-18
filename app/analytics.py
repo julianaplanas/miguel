@@ -27,6 +27,8 @@ class Filters:
     persons: list[str] | None = None
     categories: list[str] | None = None
     file_ids: list[int] | None = None
+    # Banco + tarjeta del archivo ("Galicia Visa"), tal como se muestra.
+    sources: list[str] | None = None
     # None o "" = todas las monedas, convertidas a la base.
     currency: str | None = None
 
@@ -37,6 +39,7 @@ class Filters:
             "persons": self.persons or [],
             "categories": self.categories or [],
             "file_ids": self.file_ids or [],
+            "sources": self.sources or [],
             "currency": self.currency or "",
         }
 
@@ -171,6 +174,9 @@ def fetch_rows(db: Session, filters: Filters) -> list[dict[str, Any]]:
         code = (r.currency or base).upper()
         if filters.currency and code != filters.currency.upper():
             continue
+        origen = " ".join(p for p in (r.bank or "", r.card or "") if p)
+        if filters.sources and (origen or "(sin dato)") not in filters.sources:
+            continue
         rows.append(
             {
                 "id": r.id,
@@ -187,7 +193,7 @@ def fetch_rows(db: Session, filters: Filters) -> list[dict[str, Any]]:
                 "filename": r.filename,
                 "bank": r.bank or "",
                 "card": r.card or "",
-                "source": " ".join(p for p in (r.bank or "", r.card or "") if p),
+                "source": origen,
             }
         )
     return rows
@@ -394,15 +400,20 @@ def available_options(db: Session) -> dict[str, Any]:
     """Personas, categorias, monedas y rango de fechas de los archivos activos."""
     base = base_currency(db)
     stmt = (
-        select(Transaction.person, Transaction.category, Transaction.date, Transaction.currency)
+        select(
+            Transaction.person, Transaction.category, Transaction.date, Transaction.currency,
+            UploadedFile.bank, UploadedFile.card,
+        )
         .join(UploadedFile, Transaction.file_id == UploadedFile.id)
         .where(UploadedFile.is_active.is_(True))
     )
     personas: set[str] = set()
     categorias: set[str] = set()
     monedas: set[str] = set()
+    origenes: set[str] = set()
     fechas: list[dt.date] = []
-    for persona, categoria, fecha, moneda in db.execute(stmt).all():
+    for persona, categoria, fecha, moneda, banco, tarjeta in db.execute(stmt).all():
+        origenes.add(" ".join(p for p in (banco or "", tarjeta or "") if p) or "(sin dato)")
         if persona:
             personas.add(persona)
         if categoria:
@@ -415,6 +426,9 @@ def available_options(db: Session) -> dict[str, Any]:
     return {
         "persons": sorted(personas),
         "categories": sorted(categorias),
+        # Banco y tarjeta de cada resumen. Con un solo origen el filtro no
+        # aporta nada y la pantalla lo esconde.
+        "sources": sorted(origenes),
         "currencies": sorted(monedas),
         "base_currency": base,
         "conversion_mode": conversion_mode(db),

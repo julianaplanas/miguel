@@ -240,3 +240,50 @@ def test_subir_resumen_de_dos_columnas_por_la_ui(auth):
     assert "error" not in response.headers["location"]
     opciones = auth.get("/api/opciones").json()
     assert set(opciones["currencies"]) == {"ARS", "USD"}
+
+
+def test_una_nota_sobre_dolares_no_convierte_la_columna_de_pesos():
+    """'Limite de compra en U$S 500,00' encima de la columna no es cabecera.
+
+    Antes cualquier palabra 'U$S' o 'dolar' que cayera sobre la columna la
+    etiquetaba: el resumen entero salia en dolares y habia que corregir
+    cada fila a mano.
+    """
+    from tests.pdf_fixtures import resumen_pesos_con_nota_en_dolares
+
+    df = extract_rows(resumen_pesos_con_nota_en_dolares())
+    assert len(df) == 4
+    assert set(df["moneda"]) == {""}
+    assert "45.000,00" in set(df["importe"])
+
+
+def test_la_moneda_se_puede_forzar_para_todo_el_archivo(auth):
+    """Si la deteccion se equivoca, 'todo en la moneda del archivo' lo arregla."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Transaction, UploadedFile
+
+    response = auth.post(
+        "/archivos/upload",
+        files={"files": ("mixto.pdf", io.BytesIO(resumen_tarjeta_dolares()), "application/pdf")},
+        data={"revisar": "1", "default_currency": "ARS"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    with SessionLocal() as db:
+        record = db.execute(select(UploadedFile).where(UploadedFile.filename == "mixto.pdf")).scalar_one()
+        file_id = record.id
+    pagina = auth.get(f"/archivos/{file_id}/revisar").text
+    assert 'name="force_currency"' in pagina
+
+    auth.post(
+        f"/archivos/{file_id}/revisar",
+        data={"accion": "importar", "default_currency": "ARS", "force_currency": "1"},
+        follow_redirects=False,
+    )
+    with SessionLocal() as db:
+        monedas = {
+            m for (m,) in db.execute(select(Transaction.currency).where(Transaction.file_id == file_id)).all()
+        }
+    assert monedas == {"ARS"}

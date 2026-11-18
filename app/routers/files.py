@@ -566,6 +566,7 @@ def _mapping_from_form(valores: dict[str, str], base: str) -> dict:
     """Mapeo de columnas tal como viene del formulario de revision."""
     mapping = {campo: valor for campo, valor in valores.items() if campo in FIELDS and valor}
     mapping["invert_sign"] = str(valores.get("invert_sign", "")).lower() in {"1", "true", "on", "si"}
+    mapping["force_currency"] = str(valores.get("force_currency", "")).lower() in {"1", "true", "on", "si"}
     mapping["default_currency"] = cur.normalize_code(valores.get("default_currency"), base)
     return mapping
 

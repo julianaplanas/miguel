@@ -23,6 +23,10 @@
       .forEach(function (o) { params.append('persona', o.value); });
     Array.from(document.getElementById('categoria').selectedOptions)
       .forEach(function (o) { params.append('categoria', o.value); });
+    var origen = document.getElementById('origen');
+    if (origen) {
+      Array.from(origen.selectedOptions).forEach(function (o) { params.append('origen', o.value); });
+    }
     var moneda = document.getElementById('moneda');
     if (moneda && moneda.value) { params.append('moneda', moneda.value); }
     return params.toString();
@@ -571,8 +575,9 @@
   });
 
   document.getElementById('limpiar').addEventListener('click', function () {
-    ['persona', 'categoria'].forEach(function (id) {
+    ['persona', 'categoria', 'origen'].forEach(function (id) {
       const select = document.getElementById(id);
+      if (!select) return;
       Array.from(select.options).forEach(function (o) { o.selected = false; });
       // El control disenado se entera por el evento, no por el cambio directo.
       select.dispatchEvent(new Event('change', { bubbles: true }));

@@ -34,6 +34,7 @@ def _filters(
     persona: list[str] | None = Query(None),
     categoria: list[str] | None = Query(None),
     archivo: list[int] | None = Query(None),
+    origen: list[str] | None = Query(None),
     moneda: str | None = Query(None),
 ) -> Filters:
     return Filters(
@@ -42,6 +43,7 @@ def _filters(
         persons=[p for p in (persona or []) if p],
         categories=[c for c in (categoria or []) if c],
         file_ids=archivo or [],
+        sources=[o for o in (origen or []) if o],
         currency=(moneda or "").strip().upper() or None,
     )
 
