@@ -222,6 +222,16 @@
       </div>
       {% endfor %}
       <div class="field">
+        <label for="banco">Banco</label>
+        <input id="banco" type="text" name="banco" value="{{ file.bank }}" placeholder="Ej: Galicia"
+               title="Detectado en la cabecera del archivo; corrigelo si no es">
+      </div>
+      <div class="field">
+        <label for="tarjeta">Tarjeta</label>
+        <input id="tarjeta" type="text" name="tarjeta" value="{{ file.card }}" placeholder="Ej: Visa"
+               title="Vacio si es un extracto de cuenta">
+      </div>
+      <div class="field">
         <label for="default_person">Persona por defecto</label>
         <input id="default_person" type="text" name="default_person"
                value="{{ file.default_person }}" placeholder="Ej: Miguel">

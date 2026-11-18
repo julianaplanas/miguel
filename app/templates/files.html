@@ -92,6 +92,7 @@
       <div>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
           <strong>{{ f.filename }}</strong>
+          {% if item.origen %}<span class="badge">{{ item.origen }}</span>{% endif %}
           {% if not f.imported %}
             <span class="badge off"><span class="dot"></span>Sin importar</span>
           {% elif f.is_active %}

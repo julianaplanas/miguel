@@ -16,6 +16,7 @@ from app import currency as cur
 from app.config import get_settings
 from app.deps import require_user, templates
 from app.llm import OpenRouterError, find_non_movements
+from app.origen import detectar_archivo, etiqueta
 from app.pdf_llm import extract_pages
 from app.preferences import (
     CAT_AI,
@@ -225,6 +226,7 @@ def files_page(
                 "mapping": json.loads(record.column_mapping or "{}"),
                 "columns": json.loads(record.detected_columns or "[]"),
                 "mes": meses.get(record.id, ""),
+                "origen": etiqueta(record.bank, record.card),
             }
         )
     return templates.TemplateResponse(
@@ -294,6 +296,7 @@ async def upload(
             stored_path.write_bytes(content)
 
             huella = _hash_contenido(content)
+            origen = detectar_archivo(content, nombre)
             record = UploadedFile(
                 filename=nombre,
                 stored_path=str(stored_path),
@@ -302,6 +305,8 @@ async def upload(
                 is_active=True,
                 default_person=persona,
                 content_hash=huella,
+                bank=origen["banco"],
+                card=origen["tarjeta"],
             )
             db.add(record)
             db.flush()
@@ -468,6 +473,11 @@ async def _reimportar(db: Session, record: UploadedFile) -> str:
         )
         _import_rows(db, record, parsed)
         record.imported = True
+        if not record.bank and not record.card:
+            # Los archivos de antes de que existiera el origen lo reciben
+            # al reprocesar; lo que el usuario ya corrigio no se toca.
+            origen = detectar_archivo(path.read_bytes(), record.filename)
+            record.bank, record.card = origen["banco"], origen["tarjeta"]
         db.commit()
     except Exception as exc:  # noqa: BLE001 - el motivo se le muestra al usuario
         db.rollback()
@@ -830,6 +840,7 @@ def _preview_context(db: Session, record: UploadedFile, parsed, excluidas: set[i
         "pendientes": pendientes,
         "chat_enabled": get_settings().chat_enabled,
         "reader": record.reader or "auto",
+        "origen": etiqueta(record.bank, record.card),
         "es_pdf": str(record.filename or "").lower().endswith(".pdf"),
         "active_page": "files",
     }
@@ -896,6 +907,8 @@ async def review_action(
 
     record.default_person = persona
     record.column_mapping = json.dumps(mapping, ensure_ascii=False)
+    record.bank = str(form.get("banco") or "").strip()[:64]
+    record.card = str(form.get("tarjeta") or "").strip()[:64]
 
     try:
         parsed = _preview(db, record, mapping, persona, moneda)

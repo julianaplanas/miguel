@@ -26,9 +26,10 @@ consultalo en vez de deducirlo. Puedes encadenar varias consultas.
 Ademas recibes un resumen agregado en JSON para orientarte. Los desgloses que
 existen en los datos son estos (y nada mas):
 - `por_categoria`, `por_persona`, `por_mes`, `persona_x_categoria`
-- `por_archivo`: cada archivo subido (resumen de banco o tarjeta) con su
-  nombre, sus movimientos y su gasto. El nombre del archivo es la unica pista
-  de que banco o tarjeta es; si el nombre no lo dice, no lo sabes.
+- `por_origen`: banco y tarjeta de cada resumen ("Galicia Visa", "Santander
+  Mastercard"), detectados en la cabecera del archivo. "(sin dato)" es un
+  archivo en el que no se pudo detectar: no adivines cual es.
+- `por_archivo`: cada archivo subido con su nombre, origen, movimientos y gasto.
 - `por_cuenta`: solo si los archivos traian una columna de cuenta.
 - `mayores_gastos` y `muestra_transacciones_recientes`: una MUESTRA, no el
   total. No calcules totales ni cuentes movimientos a partir de ella.
@@ -43,9 +44,8 @@ Reglas:
   de sumar, restar o dividir cifras de ahi. Una verificacion automatica
   comprueba cada numero de tu respuesta contra los resultados de las
   consultas: lo que no cuadre se te devuelve para corregirlo. Si te piden un
-  desglose que no existe (por banco, por tarjeta, por dia de la semana, por
-  medio de pago...), di que los datos no lo traen y ofrece el mas parecido
-  (por archivo suele ser el que sirve). NUNCA inventes nombres de bancos,
+  desglose que no existe (por dia de la semana, por medio de pago, por
+  sucursal...), di que los datos no lo traen y ofrece el mas parecido. NUNCA inventes nombres de bancos,
   tarjetas, comercios ni importes: una cifra inventada con dos decimales es
   peor que decir "no lo se".
 - Si el usuario te corrige ("no tengo tal banco"), no reemplaces el dato
@@ -88,6 +88,8 @@ def _totals_by(rows: list[dict[str, Any]], clave: str) -> list[dict[str, Any]]:
             (nombre, r["currency"]),
             {"nombre": nombre, "moneda": r["currency"], "movimientos": 0, "gasto": 0.0, "ingreso": 0.0},
         )
+        if clave == "filename":
+            entrada["origen"] = r.get("source") or "(sin dato)"
         entrada["movimientos"] += 1
         if r["amount"] > 0:
             entrada["gasto"] += r["amount"]
@@ -119,6 +121,7 @@ def build_data_context(db: Session, max_sample: int = 40) -> dict[str, Any]:
     return {
         "archivos_activos": len({r["file_id"] for r in rows}),
         "movimientos_totales": len(rows),
+        "por_origen": _totals_by(rows, "source"),
         "por_archivo": _totals_by(rows, "filename"),
         "por_cuenta": _totals_by(rows, "account") if any(r["account"] for r in rows) else [],
         "moneda_base": base_currency(db),

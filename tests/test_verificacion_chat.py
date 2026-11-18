@@ -126,7 +126,7 @@ def test_agrupar_con_filtros_y_buscar(auth):
         mayo = agrupar(db, {"por": "persona", "desde": "2026-05-01", "hasta": "2026-05-31", "moneda": "ARS"})
         coto = buscar_movimientos(db, {"texto": "coto", "orden": "importe"})
         valores = listar_valores(db, {"dimension": "mes"})
-        mal = agrupar(db, {"por": "banco"})
+        mal = agrupar(db, {"por": "sucursal"})
     assert {g["persona"]: g["gasto"] for g in mayo["grupos"]} == {"Ana": 48200.5, "Miguel": 35000.0}
     assert coto["encontrados"] == 2 and coto["movimientos"][0]["importe"] == 51799.5
     assert [v["valor"] for v in valores["valores"]] == ["2026-05", "2026-06"]

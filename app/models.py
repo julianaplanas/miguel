@@ -54,6 +54,10 @@ class UploadedFile(Base):
     # volver a pagar la lectura en cada vista previa ni al reimportar.
     reader: Mapped[str] = mapped_column(String(16), default="")
     ai_rows: Mapped[str] = mapped_column(Text, default="")
+    # De que banco y tarjeta es el resumen. Se detecta en la cabecera del
+    # PDF al subirlo (app/origen.py) y se puede corregir en la revision.
+    bank: Mapped[str] = mapped_column(String(64), default="")
+    card: Mapped[str] = mapped_column(String(64), default="")
 
     transactions: Mapped[list["Transaction"]] = relationship(
         back_populates="file", cascade="all, delete-orphan", passive_deletes=True

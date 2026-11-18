@@ -149,6 +149,8 @@ def fetch_rows(db: Session, filters: Filters) -> list[dict[str, Any]]:
             Transaction.account,
             Transaction.file_id,
             UploadedFile.filename,
+            UploadedFile.bank,
+            UploadedFile.card,
         )
         .join(UploadedFile, Transaction.file_id == UploadedFile.id)
         .where(UploadedFile.is_active.is_(True))
@@ -183,6 +185,9 @@ def fetch_rows(db: Session, filters: Filters) -> list[dict[str, Any]]:
                 "account": r.account or "",
                 "file_id": r.file_id,
                 "filename": r.filename,
+                "bank": r.bank or "",
+                "card": r.card or "",
+                "source": " ".join(p for p in (r.bank or "", r.card or "") if p),
             }
         )
     return rows

@@ -38,6 +38,8 @@ _ADDED_COLUMNS: dict[str, dict[str, tuple[str, str]]] = {
         "reader": ("VARCHAR(16)", "''"),
         "content_hash": ("VARCHAR(64)", "''"),
         "ai_rows": ("TEXT", "''"),
+        "bank": ("VARCHAR(64)", "''"),
+        "card": ("VARCHAR(64)", "''"),
     },
     # Una categoria que venia del archivo se respeta ('file'); las que
     # quedaron sin categorizar se marcan vacias para que el recategorizado

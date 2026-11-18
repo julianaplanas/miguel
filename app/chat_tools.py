@@ -25,6 +25,9 @@ DIMENSIONES = {
     "persona": "person",
     "mes": "mes",
     "archivo": "filename",
+    "origen": "source",
+    "banco": "bank",
+    "tarjeta": "card",
     "cuenta": "account",
     "moneda": "currency",
     "descripcion": "description",
@@ -38,9 +41,9 @@ TOOLS: list[dict[str, Any]] = [
             "description": (
                 "Total de gasto, de ingreso y numero de movimientos agrupados por una "
                 "dimension, moneda por moneda. Es la forma de responder 'cuanto gaste "
-                "en X', 'por mes', 'por archivo/banco/tarjeta' (el archivo es el resumen "
-                "subido; su nombre es la unica pista del banco), 'por comercio' "
-                "(descripcion). Admite filtros."
+                "en X', 'por mes', 'por banco', 'por tarjeta', 'por origen' (banco y "
+                "tarjeta juntos: 'Galicia Visa'), 'por archivo' (el resumen subido), "
+                "'por comercio' (descripcion). Admite filtros."
             ),
             "parameters": {
                 "type": "object",
